@@ -1,0 +1,49 @@
+{
+    "metadata": {
+      "dataSource": "国家气象局 & 樱花观测联盟",
+      "lastUpdate": "2025-03-06T14:30:00+08:00",
+      "predictionModel": "AI-LSTM-v3.2"
+    },
+    "locations": [
+      {
+        "id": "whu_001",
+        "name": "武汉大学樱园",
+        "coordinates": [30.5385, 114.3553],
+        "altitude": 27.6,
+        "currentStatus": "pre-bloom",
+        "prediction": {
+          "traditionalMethod": {
+            "400DegreeRule": "2025-03-18",
+            "600DegreeRule": "2025-03-22"
+          },
+          "aiPrediction": {
+            "firstBloom": "2025-03-15±2",
+            "peakStart": "2025-03-20",
+            "peakEnd": "2025-03-28",
+            "confidence": 0.87
+          },
+          "probabilityCurve": [
+            {"date": "2025-03-10", "bloomProb": 0.15},
+            {"date": "2025-03-15", "bloomProb": 0.65},
+            {"date": "2025-03-20", "bloomProb": 0.92}
+          ]
+        },
+        "historicalData": [
+          {
+            "year": 2024,
+            "firstBloom": "03-12",
+            "fullBloom": "03-18",
+            "fallBegin": "03-28"
+          }
+        ],
+        "popularity": {
+          "favorites": 8921,
+          "lastYearVisitors": 215000
+        },
+        "attractions": [
+          "老斋舍",
+          "樱花城堡"
+        ]
+      }
+    ]
+  }

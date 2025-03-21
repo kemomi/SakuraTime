@@ -1,0 +1,29 @@
+/* 移动端优先设计 */
+.container {
+    padding: 1rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.responsive-map {
+    height: 400px;
+    margin-bottom: 2rem;
+}
+
+.card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 1rem;
+}
+
+@media (min-width: 768px) {
+    .responsive-map {
+        height: 600px;
+    }
+    
+    .filter-panel {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+}

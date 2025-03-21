@@ -1,0 +1,45 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>花季 - 全国花卉花期指南</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+    <!-- 动态加载导航组件 -->
+    <div id="header-container"></div>
+    
+    <main class="container">
+        <section id="map-container" class="responsive-map"></section>
+        <div class="filter-panel">
+            <input type="date" id="date-filter" class="filter-input">
+            <select id="region-filter" class="filter-select">
+                <option value="all">全国</option>
+            </select>
+        </div>
+        <section id="flower-list" class="card-grid"></section>
+    </main>
+
+    <!-- 动态加载组件 -->
+    <script type="module">
+        import { initMap } from '/js/app/mapModule.js';
+        import { loadData } from '/js/app/dataModule.js';
+        import { setupStorage } from '/js/app/storage.js';
+
+        // 初始化地图
+        const map = initMap('map-container');
+        
+        // 加载数据并渲染
+        loadData().then(data => {
+            renderFlowerCards(data);
+            updateMapMarkers(data);
+        });
+
+        // 收藏功能初始化
+        setupStorage();
+    </script>
+</body>
+</html>

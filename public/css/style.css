@@ -1,0 +1,11 @@
+/* public/css/style.css 移动端适配方案 在CSS中增加媒体查询*/
+@media (max-width: 768px) {
+    .bloom-gauge {
+      transform: scale(0.8);
+      margin-left: -15%;
+    }
+    .stamp-canvas {
+      width: 120px !important;
+      height: 120px !important;
+    }
+  }
