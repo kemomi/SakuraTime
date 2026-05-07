@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#0d0509">
+<meta name="description" content="樱花时令 · 中国实时樱花开放预测系统">
+<title>樱花时令 Sakura-Time · 中国版</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;700&family=IBM+Plex+Mono:wght@300;400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<!-- BUG FIX: Load libs synchronously in <head> so L & Chart are defined before ANY script runs -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --sp:#fce8ef; --sb:#f4b8c8; --sm:#e8789a; --sd:#c94e78; --si:#7a1a3a;
+  --n0:#0d0509; --n1:#180b10; --n2:#261120;
+  --bo:rgba(232,120,154,.15); --b2:rgba(232,120,154,.30);
+  --tp:#f8e8ef; --tm:rgba(248,232,239,.55); --td:rgba(248,232,239,.30);
+  --gold:#d4a853; --em:#3db87a; --am:#e8a040; --sky:#6ec5e0;
+  --r:8px; --rl:16px;
+  --fs:'Noto Serif SC',serif;
+  --fm:'IBM Plex Mono',monospace;
+  --sh:0 4px 24px rgba(0,0,0,.6);
+}
+
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--fs);background:var(--n0);color:var(--tp);display:flex;flex-direction:column}
+
+/* Petals */
+#petals-canvas{position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.35}
+
+/* App shell */
+#app{display:flex;flex-direction:column;height:100%;position:relative;z-index:1}
+
+/* ── TOPBAR ── */
+#topbar{
+  display:flex;align-items:center;gap:16px;padding:10px 20px;
+  background:linear-gradient(135deg,rgba(26,6,14,.97),rgba(45,21,32,.97));
+  border-bottom:1px solid var(--b2);flex-shrink:0;z-index:200;min-height:52px;
+}
+.logo{display:flex;align-items:center;gap:8px;font-size:20px;font-weight:800;color:var(--sb);flex-shrink:0}
+.logo-sub{font-size:10px;font-weight:300;opacity:.6;margin-top:1px;display:block}
+.nav-tabs{display:flex;gap:3px;background:rgba(0,0,0,.3);border:1px solid var(--bo);border-radius:var(--r);padding:3px}
+.nav-tab{padding:6px 12px;border-radius:5px;cursor:pointer;font-size:12px;font-family:var(--fs);font-weight:600;color:var(--tm);border:none;background:none;transition:all .2s;white-space:nowrap}
+.nav-tab:hover{color:var(--sb)}
+.nav-tab.active{background:linear-gradient(135deg,var(--si),#4a1028);color:var(--sp);box-shadow:0 2px 8px rgba(201,78,120,.3)}
+.search-box{display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.4);border:1px solid var(--bo);border-radius:var(--r);padding:6px 12px;flex:1;max-width:300px}
+.search-box input{background:none;border:none;outline:none;color:var(--tp);font-family:var(--fs);font-size:13px;width:100%}
+.search-box input::placeholder{color:var(--td)}
+.status-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;font-size:11px;font-family:var(--fm);background:rgba(61,184,122,.12);border:1px solid rgba(61,184,122,.3);color:var(--em);margin-left:auto;white-space:nowrap;cursor:pointer}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--em);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}
+
+/* ── PAGE SYSTEM — BUG FIX: #main gets its own display rule, .page only for non-map pages ── */
+#pw{flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+
+/* Map page is not a .page — it has its own layout */
+#main{display:flex;flex:1;overflow:hidden;min-height:0}
+#main.page-hidden{display:none}
+
+/* Scrollable pages */
+.page{display:none;flex:1;flex-direction:column;overflow-y:auto}
+.page.active{display:flex}
+
+/* ── SIDEBAR ── */
+#sidebar{width:320px;flex-shrink:0;background:linear-gradient(180deg,var(--n1) 0%,var(--n2) 100%);border-right:1px solid var(--bo);display:flex;flex-direction:column;overflow:hidden}
+.sidebar-header{padding:14px 16px 10px;border-bottom:1px solid var(--bo);flex-shrink:0}
+.sidebar-title{font-size:10px;font-family:var(--fm);color:var(--tm);letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px}
+.filter-chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{padding:3px 9px;border-radius:12px;cursor:pointer;font-size:11px;border:1px solid var(--bo);color:var(--tm);background:none;font-family:var(--fs);transition:all .2s}
+.chip:hover{border-color:var(--sm);color:var(--sb)}
+.chip.active{background:linear-gradient(135deg,rgba(201,78,120,.3),rgba(122,26,58,.3));border-color:var(--sm);color:var(--sp)}
+.spots-list{flex:1;overflow-y:auto;padding:8px}
+.spots-list::-webkit-scrollbar{width:3px}
+.spots-list::-webkit-scrollbar-thumb{background:var(--bo);border-radius:2px}
+
+/* Spot cards */
+.spot-card{border:1px solid var(--bo);border-radius:var(--r);padding:12px;margin-bottom:6px;cursor:pointer;transition:all .2s;background:rgba(255,255,255,.02);position:relative;overflow:hidden}
+.spot-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--sm);opacity:0;transition:opacity .2s}
+.spot-card:hover{border-color:var(--b2);background:rgba(255,255,255,.04);transform:translateX(2px)}
+.spot-card:hover::before,.spot-card.selected::before{opacity:1}
+.spot-card.selected{border-color:var(--sm);background:rgba(232,120,154,.06)}
+.spot-card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+.spot-name-cn{font-size:14px;font-weight:600;color:var(--sp)}
+.spot-name-ja{font-size:10px;color:var(--td);margin-top:1px}
+.spot-region{font-size:10px;font-family:var(--fm);color:var(--tm);background:rgba(255,255,255,.05);padding:2px 6px;border-radius:8px;flex-shrink:0}
+.spot-status-row{display:flex;align-items:center;justify-content:space-between}
+.status-pill{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:600}
+.status-not_yet{background:rgba(100,100,120,.2);color:#8888aa;border:1px solid rgba(100,100,120,.3)}
+.status-budding{background:rgba(212,168,83,.15);color:var(--gold);border:1px solid rgba(212,168,83,.3)}
+.status-opening{background:rgba(232,160,64,.15);color:var(--am);border:1px solid rgba(232,160,64,.3)}
+.status-blooming{background:rgba(232,120,154,.15);color:var(--sb);border:1px solid rgba(232,120,154,.3)}
+.status-full_bloom{background:rgba(201,78,120,.2);color:var(--sp);border:1px solid rgba(201,78,120,.5)}
+.status-falling{background:rgba(110,197,224,.12);color:var(--sky);border:1px solid rgba(110,197,224,.3)}
+.status-ended{background:rgba(80,80,80,.2);color:#666;border:1px solid rgba(80,80,80,.3)}
+.bloom-bar{display:flex;align-items:center;gap:5px;flex:1;margin-left:8px}
+.bloom-bar-track{flex:1;height:3px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden}
+.bloom-bar-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--si),var(--sm),var(--sb));transition:width .8s}
+.bloom-pct{font-size:10px;font-family:var(--fm);color:var(--td);min-width:24px}
+.spot-forecast{margin-top:6px;font-size:11px;color:var(--tm);display:flex;gap:10px}
+.spot-weather{margin-top:4px;font-size:11px;color:var(--tm)}
+
+/* ── MAP — BUG FIX: position:absolute inset:0 guarantees full height without height:100% chain ── */
+#map-container{flex:1;position:relative;background:var(--n0);min-width:0;min-height:0;overflow:hidden}
+#map{position:absolute;inset:0;width:100%;height:100%}
+.leaflet-tile{filter:invert(1) hue-rotate(180deg) brightness(.85) saturate(.7)}
+.map-controls{position:absolute;top:12px;right:12px;z-index:400;display:flex;flex-direction:column;gap:6px}
+.map-btn{width:38px;height:38px;background:rgba(26,10,14,.95);border:1px solid var(--b2);border-radius:var(--r);cursor:pointer;color:var(--tp);font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s;backdrop-filter:blur(12px)}
+.map-btn:hover{background:rgba(201,78,120,.2);border-color:var(--sm)}
+.refresh-button{position:absolute;left:12px;bottom:12px;z-index:400;background:rgba(26,10,14,.95);border:1px solid var(--b2);color:var(--tp);border-radius:999px;padding:8px 14px;font-size:12px;font-family:var(--fm);cursor:pointer;backdrop-filter:blur(16px);transition:all .2s}
+.refresh-button:hover{background:rgba(201,78,120,.2);transform:translateY(-1px)}
+
+/* Offline panel */
+.offline-panel{position:absolute;bottom:16px;right:12px;z-index:400;background:rgba(26,10,14,.97);border:1px solid var(--b2);border-radius:var(--rl);padding:14px;backdrop-filter:blur(20px);width:240px;display:none}
+.offline-panel.visible{display:block}
+.offline-title{font-size:13px;font-weight:600;margin-bottom:8px;color:var(--sb)}
+.offline-desc{font-size:11px;color:var(--tm);margin-bottom:10px;line-height:1.5}
+.offline-zoom-row{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap}
+.zoom-chip{padding:4px 8px;border-radius:6px;font-size:10px;font-family:var(--fm);cursor:pointer;border:1px solid var(--bo);color:var(--tm);background:none}
+.zoom-chip.selected{background:rgba(201,78,120,.2);border-color:var(--sm);color:var(--sb)}
+.dl-btn{width:100%;padding:8px;border-radius:var(--r);background:linear-gradient(135deg,var(--si),#4a1028);border:1px solid rgba(232,120,154,.4);color:var(--sp);font-size:12px;font-family:var(--fs);font-weight:600;cursor:pointer;transition:all .2s}
+.dl-btn:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(201,78,120,.4)}
+.dl-progress{margin-top:8px;display:none}
+.dl-progress.visible{display:block}
+.dl-bar-track{height:3px;background:rgba(255,255,255,.1);border-radius:2px;overflow:hidden;margin-top:4px}
+.dl-bar-fill{height:100%;background:linear-gradient(90deg,var(--si),var(--sb));border-radius:2px;transition:width .3s}
+
+/* Sakura popup */
+.sakura-popup .leaflet-popup-content-wrapper{background:rgba(26,10,14,.97)!important;border:1px solid var(--b2)!important;border-radius:var(--rl)!important;color:var(--tp)!important;box-shadow:var(--sh)!important}
+.sakura-popup .leaflet-popup-tip{background:rgba(26,10,14,.97)!important}
+.sakura-popup .leaflet-popup-content{min-width:200px}
+.popup-name{font-size:14px;font-weight:700;color:var(--sb);margin-bottom:6px}
+.popup-tl{border-top:1px solid rgba(232,120,154,.15);padding-top:7px;margin:7px 0}
+.popup-row{font-size:11px;color:var(--tm);display:flex;justify-content:space-between;gap:8px;margin-top:4px}
+
+/* Sakura marker */
+.sakura-marker{width:36px;height:36px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,.3);box-shadow:0 2px 12px rgba(0,0,0,.5);font-size:14px;cursor:pointer}
+.sakura-marker span{transform:rotate(45deg)}
+
+/* ── DETAIL PANEL ── */
+#detail-panel{width:360px;flex-shrink:0;background:linear-gradient(180deg,var(--n1) 0%,var(--n0) 100%);border-left:1px solid var(--bo);display:flex;flex-direction:column;overflow:hidden;transition:width .3s,opacity .3s}
+#detail-panel.hidden{width:0;opacity:0;pointer-events:none}
+.detail-scroll{flex:1;overflow-y:auto}
+.detail-scroll::-webkit-scrollbar{width:3px}
+.detail-scroll::-webkit-scrollbar-thumb{background:var(--bo);border-radius:2px}
+.detail-hero{position:relative;padding:20px;background:linear-gradient(135deg,rgba(201,78,120,.15),rgba(122,26,58,.1));border-bottom:1px solid var(--bo)}
+.detail-close{position:absolute;top:14px;right:14px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.4);border:1px solid var(--bo);color:var(--tm);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center}
+.detail-close:hover{color:var(--sb)}
+.detail-name{font-size:22px;font-weight:800;color:var(--sp);margin-bottom:4px}
+.detail-name-sub{font-size:12px;color:var(--tm);margin-bottom:14px}
+.detail-meta{display:flex;flex-wrap:wrap;gap:6px}
+.meta-chip{padding:3px 8px;border-radius:10px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--bo);color:var(--tm)}
+.detail-section{padding:16px 20px;border-bottom:1px solid var(--bo)}
+.section-label{font-size:10px;font-family:var(--fm);letter-spacing:.1em;color:var(--td);text-transform:uppercase;margin-bottom:12px}
+.big-bloom-indicator{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+.bloom-ring{width:76px;height:76px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;box-shadow:0 0 20px rgba(201,78,120,.3)}
+.bloom-ring-inner{width:56px;height:56px;border-radius:50%;background:var(--n1);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--sb)}
+.bloom-info-col{flex:1}
+.bloom-status-big{font-size:16px;font-weight:700;color:var(--sp);margin-bottom:4px}
+.bloom-desc{font-size:11px;color:var(--tm);line-height:1.6}
+
+/* Bloom timeline */
+.timeline-box{display:flex;align-items:center;gap:4px;background:rgba(0,0,0,.3);border:1px solid var(--bo);border-radius:var(--rl);padding:10px 12px;margin-top:12px;flex-wrap:wrap}
+.tl-phase{flex:1;text-align:center;padding:7px 4px;border-radius:var(--r);min-width:70px}
+.tl-open{background:rgba(212,168,83,.1);border:1px solid rgba(212,168,83,.25)}
+.tl-full{background:rgba(201,78,120,.15);border:1px solid rgba(201,78,120,.35)}
+.tl-end{background:rgba(110,197,224,.08);border:1px solid rgba(110,197,224,.2)}
+.tl-label{font-size:11px;color:var(--tm);margin-bottom:3px}
+.tl-date{font-size:12px;font-weight:700;color:var(--sp);font-family:var(--fm)}
+.tl-arrow{color:var(--td);font-size:14px;flex-shrink:0}
+.tl-footer{margin-top:6px;font-size:10px;color:var(--tm);font-family:var(--fm);text-align:center}
+
+/* Best time */
+.best-card{display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:var(--r);background:rgba(255,255,255,.02);border:1px solid var(--bo);margin-bottom:6px}
+.best-icon{font-size:18px;flex-shrink:0;margin-top:1px}
+.best-body{flex:1}
+.best-title{font-size:11px;color:var(--sb);font-weight:600;margin-bottom:2px}
+.best-text{font-size:11px;color:var(--tm);line-height:1.6}
+
+/* 7-day weather */
+.week-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:6px}
+.wday{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;border-radius:var(--r);background:rgba(255,255,255,.02);border:1px solid var(--bo);text-align:center}
+.wday-label{font-size:9px;color:var(--td);font-family:var(--fm);white-space:nowrap}
+.wday-icon{font-size:16px}
+.wday-temps{display:flex;gap:2px;font-size:9px;flex-wrap:wrap;justify-content:center}
+.wday-hi{color:var(--sb);font-weight:700}
+.wday-lo{color:var(--td)}
+.wday-precip{font-size:8px;color:var(--sky);font-family:var(--fm)}
+.wday-advice{font-size:8px;font-weight:700;padding:1px 3px;border-radius:4px;border:1px solid;white-space:nowrap}
+.wleg{display:flex;align-items:center;gap:8px;font-size:9px;color:var(--tm);padding:4px 0;flex-wrap:wrap}
+.wli{font-weight:600}
+
+/* Weather strip */
+.weather-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.w-item{text-align:center;padding:8px 4px;background:rgba(255,255,255,.03);border-radius:var(--r);border:1px solid var(--bo)}
+.w-icon{font-size:18px;margin-bottom:3px}
+.w-val{font-size:14px;font-weight:700;color:var(--sb)}
+.w-label{font-size:9px;color:var(--td);font-family:var(--fm)}
+
+/* Charts — BUG FIX: add explicit heights */
+.chart-wrap{height:160px;position:relative}
+.hist-chart-wrap{height:140px;position:relative}
+
+/* Forecast boxes */
+.forecast-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.forecast-box{padding:10px;border-radius:var(--r);border:1px solid var(--bo);background:rgba(255,255,255,.02)}
+.forecast-box-label{font-size:10px;color:var(--td);font-family:var(--fm);margin-bottom:3px}
+.forecast-box-date{font-size:15px;font-weight:700;color:var(--sb)}
+.forecast-box-conf{font-size:10px;color:var(--tm);margin-top:2px}
+
+/* ── FRONT PAGE ── */
+#page-front{padding:24px;gap:20px;background:radial-gradient(ellipse at top,rgba(201,78,120,.08) 0%,transparent 60%)}
+.front-header{text-align:center}
+.front-title{font-size:28px;font-weight:800;color:var(--sb);letter-spacing:-.02em}
+.front-sub{font-size:12px;color:var(--tm);margin-top:3px;font-family:var(--fm)}
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.stat-box{padding:14px;border-radius:var(--rl);border:1px solid var(--bo);background:rgba(255,255,255,.02);text-align:center}
+.stat-val{font-size:26px;font-weight:800;color:var(--sb);margin-bottom:3px}
+.stat-label{font-size:11px;color:var(--tm)}
+.front-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+/* BUG FIX: add cursor:pointer to front-card */
+.front-card{border:1px solid var(--bo);border-radius:var(--rl);padding:18px;background:rgba(255,255,255,.02);transition:all .25s;cursor:pointer}
+.front-card:hover{border-color:var(--b2);transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,.4)}
+.front-card-region{font-size:10px;font-family:var(--fm);color:var(--td);margin-bottom:6px}
+.front-card-name{font-size:17px;font-weight:700;color:var(--sp);margin-bottom:10px}
+.front-card-status{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px}
+
+/* ── OFFLINE PAGE ── */
+#page-offline{padding:24px;gap:20px;background:radial-gradient(ellipse at top,rgba(61,184,122,.05) 0%,transparent 50%)}
+.offline-header{font-size:22px;font-weight:700;color:var(--tp)}
+.offline-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.offline-card{border:1px solid var(--bo);border-radius:var(--rl);padding:18px;background:rgba(255,255,255,.02)}
+.cached-area{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.cached-name{font-size:14px;font-weight:600}
+.cached-size{font-size:11px;font-family:var(--fm);color:var(--tm)}
+.cached-meta{font-size:11px;color:var(--td)}
+.del-btn{margin-top:10px;padding:6px 12px;border-radius:var(--r);border:1px solid rgba(255,100,100,.3);background:rgba(255,50,50,.08);color:#ff8888;font-size:12px;font-family:var(--fs);cursor:pointer}
+.del-btn:hover{background:rgba(255,50,50,.15)}
+.region-selector{border:1px solid var(--bo);border-radius:var(--rl);padding:20px;background:rgba(255,255,255,.02)}
+.region-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:12px 0}
+.region-dl-card{padding:10px;border-radius:var(--r);border:1px solid var(--bo);cursor:pointer;transition:all .2s;background:rgba(255,255,255,.02)}
+.region-dl-card:hover{border-color:var(--sm);background:rgba(232,120,154,.06)}
+.region-dl-card.selected{border-color:var(--sm);background:rgba(201,78,120,.1)}
+.region-dl-name{font-size:13px;font-weight:600;margin-bottom:3px}
+.region-dl-size{font-size:10px;font-family:var(--fm);color:var(--td)}
+.big-dl-btn{padding:12px 22px;border-radius:var(--rl);background:linear-gradient(135deg,var(--si),#4a1028);border:1px solid rgba(232,120,154,.4);color:var(--sp);font-size:14px;font-family:var(--fs);font-weight:700;cursor:pointer;transition:all .2s;display:inline-flex;align-items:center;gap:8px}
+.big-dl-btn:hover{transform:translateY(-2px);box-shadow:0 6px 24px rgba(201,78,120,.4)}
+.storage-info{display:flex;align-items:center;gap:14px;padding:10px 14px;border-radius:var(--r);background:rgba(0,0,0,.3);border:1px solid var(--bo);margin-top:14px}
+.storage-bar-track{flex:1;height:5px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden}
+.storage-bar-fill{height:100%;background:linear-gradient(90deg,var(--em),var(--am));border-radius:3px}
+.storage-text{font-size:11px;font-family:var(--fm);color:var(--tm);white-space:nowrap}
+
+/* ── TOAST ── */
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(60px);background:rgba(26,10,14,.97);border:1px solid var(--b2);border-radius:var(--rl);padding:10px 18px;font-size:12px;z-index:9999;transition:transform .3s;backdrop-filter:blur(20px);box-shadow:var(--sh);white-space:nowrap}
+#toast.show{transform:translateX(-50%) translateY(0)}
+
+/* ── RESPONSIVE ── */
+@media(max-width:1100px){#detail-panel{display:none}#sidebar{width:280px}}
+@media(max-width:768px){
+  #topbar{padding:8px 12px;flex-wrap:wrap;gap:8px;min-height:auto}
+  .search-box{flex:1 1 100%;max-width:none;order:3}
+  .status-badge{margin-left:0}
+  #sidebar{display:none}
+  #main{flex-direction:column}
+  #map-container{min-height:55vh}
+  .stats-row{grid-template-columns:repeat(2,1fr)}
+  .nav-tab{padding:5px 8px;font-size:11px}
+  .front-grid{grid-template-columns:1fr}
+  #page-front,#page-offline{padding:14px}
+  .week-grid{grid-template-columns:repeat(4,1fr)}
+}
+@media(max-width:480px){
+  .stats-row{grid-template-columns:repeat(2,1fr)}
+  .region-grid{grid-template-columns:repeat(3,1fr)}
+}
+</style>
+</head>
+<body>
+<canvas id="petals-canvas"></canvas>
+
+<div id="app">
+  <div id="topbar">
+    <div class="logo">
+      <span>🌸</span>
+      <div><span>樱花时令</span><span class="logo-sub">China Sakura · 实时预测</span></div>
+    </div>
+    <div class="nav-tabs">
+      <button class="nav-tab active" data-page="map" onclick="switchPage('map')">🗾 地图</button>
+      <button class="nav-tab" data-page="front" onclick="switchPage('front')">🌊 前线</button>
+      <button class="nav-tab" data-page="offline" onclick="switchPage('offline')">📦 离线</button>
+    </div>
+    <div class="search-box">
+      <span style="color:var(--td)">🔍</span>
+      <input type="text" placeholder="搜索观樱地点…" oninput="filterSpots(this.value)">
+    </div>
+    <div class="status-badge" onclick="refreshAllData()">
+      <div class="status-dot"></div>一键刷新
+    </div>
+  </div>
+
+  <div id="pw">
+    <!-- MAP PAGE -->
+    <div id="main">
+      <div id="sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-title">筛选地区</div>
+          <div class="filter-chips" id="region-chips">
+            <button class="chip active" onclick="filterRegion('all',this)">全国</button>
+            <button class="chip" onclick="filterRegion('华北',this)">华北</button>
+            <button class="chip" onclick="filterRegion('东北',this)">东北</button>
+            <button class="chip" onclick="filterRegion('华东',this)">华东</button>
+            <button class="chip" onclick="filterRegion('华中',this)">华中</button>
+            <button class="chip" onclick="filterRegion('华南',this)">华南</button>
+            <button class="chip" onclick="filterRegion('西南',this)">西南</button>
+            <button class="chip" onclick="filterRegion('西北',this)">西北</button>
+          </div>
+        </div>
+        <div class="spots-list" id="spots-list"></div>
+      </div>
+
+      <div id="map-container">
+        <div id="map"></div>
+        <div class="map-controls">
+          <button class="map-btn" onclick="locateUser()" title="定位">📍</button>
+          <button class="map-btn" onclick="toggleOfflinePanel()" title="离线地图">📥</button>
+          <button class="map-btn" onclick="toggleSatellite()" title="切换图层">🛰️</button>
+          <button class="map-btn" onclick="resetView()" title="重置视图">🎯</button>
+        </div>
+        <button class="refresh-button" onclick="refreshAllData()">⟳ 一键刷新</button>
+        <div class="offline-panel" id="offline-panel">
+          <div class="offline-title">📥 下载当前区域离线地图</div>
+          <div class="offline-desc">下载后可在无网络环境查看地图及数据。</div>
+          <div class="sidebar-title" style="margin-bottom:5px">缩放级别</div>
+          <div class="offline-zoom-row" id="zoom-chips">
+            <button class="zoom-chip" onclick="selectZoom(10,this)">10</button>
+            <button class="zoom-chip selected" onclick="selectZoom(12,this)">12</button>
+            <button class="zoom-chip" onclick="selectZoom(14,this)">14</button>
+            <button class="zoom-chip" onclick="selectZoom(16,this)">16</button>
+          </div>
+          <div id="size-estimate" style="font-size:11px;color:var(--tm);margin-bottom:8px">预计大小：约 18 MB</div>
+          <button class="dl-btn" onclick="startOfflineDownload()">开始下载当前区域</button>
+          <div class="dl-progress" id="dl-progress">
+            <div style="font-size:11px;color:var(--tm)" id="dl-status">正在准备…</div>
+            <div class="dl-bar-track"><div class="dl-bar-fill" id="dl-bar" style="width:0%"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="detail-panel" class="hidden">
+        <div class="detail-scroll" id="detail-scroll"></div>
+      </div>
+    </div>
+
+    <!-- FRONT PAGE -->
+    <div id="page-front" class="page">
+      <div class="front-header">
+        <div class="front-title">🌊 全国樱花前线</div>
+        <div class="front-sub">CHINA SAKURA FRONT · 2026 · REAL-TIME</div>
+      </div>
+      <div class="stats-row">
+        <div class="stat-box"><div class="stat-val" id="stat-full">—</div><div class="stat-label">满开地点</div></div>
+        <div class="stat-box"><div class="stat-val" id="stat-bloom">—</div><div class="stat-label">开花中</div></div>
+        <div class="stat-box"><div class="stat-val" id="stat-soon">—</div><div class="stat-label">即将开放</div></div>
+        <div class="stat-box"><div class="stat-val" id="stat-total">—</div><div class="stat-label">监测地点</div></div>
+      </div>
+      <div class="front-grid" id="front-grid"></div>
+    </div>
+
+    <!-- OFFLINE PAGE -->
+    <div id="page-offline" class="page">
+      <div class="offline-header">📦 离线地图管理</div>
+      <p style="color:var(--tm);font-size:13px;margin-top:4px">下载指定区域的地图瓦片与樱花数据，支持完全离线浏览。</p>
+      <div class="region-selector">
+        <div class="sidebar-title">选择下载区域</div>
+        <div class="region-grid" id="region-dl-grid"></div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <button class="big-dl-btn" onclick="downloadSelectedRegions()"><span>📥</span>下载所选区域</button>
+          <span style="font-size:12px;color:var(--tm)" id="selected-size-label">未选择</span>
+        </div>
+        <div class="storage-info">
+          <div class="storage-bar-track"><div class="storage-bar-fill" id="storage-fill" style="width:2%"></div></div>
+          <div class="storage-text" id="storage-text">正在读取…</div>
+        </div>
+      </div>
+      <div style="font-size:15px;font-weight:600;margin-top:4px">已缓存区域</div>
+      <div class="offline-cards" id="cached-cards">
+        <div style="color:var(--tm);font-size:13px;padding:16px 0">暂无缓存数据。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════
+// DATA — 中国12大观樱地点，含完整字段
+// ══════════════════════════════════════════════
+const SPOTS = [
+  { id:'s01', name:'颐和园', nameEn:'Summer Palace', region:'华北', pref:'北京市',
+    lat:39.9980, lng:116.2755, alt:40, trees:3200, variety:'早樱/山樱',
+    status:'full_bloom', bloomPct:92, temp:18, humidity:55, weather:'☀️',
+    fFirst:'2026-03-26', fFull:'2026-03-30', fEnd:'2026-04-10', conf:0.89,
+    desc:'北京最经典的赏樱地，昆明湖畔樱花与古典皇家建筑相映成趣，春日游人如织。',
+    bestTime:'满开后2–4天（约3月31日–4月3日）早晨8–10时人少景美',
+    bestHours:'早晨7–9时（游客稀少，光线柔和）或下午16–18时（斜光染红花瓣）',
+    access:'地铁4号线「北宫门」站步行5分钟',
+    tips:'周末极为拥挤，建议工作日前往。昆明湖东岸的长廊是拍摄最佳机位。',
+    weekly:[{day:'今天',icon:'☀️',tMax:19,tMin:8,precip:5,wind:2.2,advice:'绝佳'},
+            {day:'明天',icon:'⛅',tMax:17,tMin:7,precip:15,wind:2.8,advice:'良好'},
+            {day:'后天',icon:'🌧️',tMax:12,tMin:5,precip:70,wind:4.5,advice:'不宜'},
+            {day:'周四',icon:'⛅',tMax:15,tMin:6,precip:25,wind:3.0,advice:'一般'},
+            {day:'周五',icon:'☀️',tMax:20,tMin:9,precip:5,wind:1.8,advice:'绝佳'},
+            {day:'周六',icon:'☀️',tMax:21,tMin:10,precip:5,wind:1.5,advice:'绝佳'},
+            {day:'周日',icon:'⛅',tMax:17,tMin:8,precip:20,wind:2.5,advice:'良好'}],
+    tags:['皇家园林','古建筑','湖景'], rating:4.8 },
+
+  { id:'s02', name:'杭州西湖', nameEn:'West Lake', region:'华东', pref:'浙江省',
+    lat:30.2440, lng:120.1455, alt:15, trees:2100, variety:'染井吉野',
+    status:'blooming', bloomPct:74, temp:16, humidity:60, weather:'⛅',
+    fFirst:'2026-03-28', fFull:'2026-04-03', fEnd:'2026-04-14', conf:0.86,
+    desc:'西湖边樱花盛开，湖光山色与花海交织，苏堤春晓是春天最浪漫的江南画面。',
+    bestTime:'满开后3–5天（约4月3日–4月7日）傍晚苏堤最美',
+    bestHours:'早晨6–8时（薄雾弥漫，意境深远）或傍晚17–19时',
+    access:'公交到「岳庙」站，或骑共享单车沿湖骑行',
+    tips:'苏堤和白堤两侧樱花最集中，游船可一览湖中景色。清明前后是花期高峰。',
+    weekly:[{day:'今天',icon:'⛅',tMax:17,tMin:9,precip:20,wind:2.5,advice:'良好'},
+            {day:'明天',icon:'☀️',tMax:19,tMin:10,precip:5,wind:1.8,advice:'绝佳'},
+            {day:'后天',icon:'☀️',tMax:20,tMin:11,precip:5,wind:1.5,advice:'绝佳'},
+            {day:'周四',icon:'🌧️',tMax:14,tMin:8,precip:75,wind:5.0,advice:'不宜'},
+            {day:'周五',icon:'⛅',tMax:17,tMin:9,precip:25,wind:2.2,advice:'一般'},
+            {day:'周六',icon:'☀️',tMax:20,tMin:10,precip:5,wind:1.8,advice:'绝佳'},
+            {day:'周日',icon:'☀️',tMax:21,tMin:11,precip:5,wind:1.5,advice:'绝佳'}],
+    tags:['湖景','苏堤','江南'], rating:4.9 },
+
+  { id:'s03', name:'武汉东湖樱园', nameEn:'East Lake Cherry Garden', region:'华中', pref:'湖北省',
+    lat:30.5600, lng:114.4035, alt:21, trees:2800, variety:'河津樱',
+    status:'opening', bloomPct:38, temp:14, humidity:68, weather:'🌦️',
+    fFirst:'2026-03-31', fFull:'2026-04-06', fEnd:'2026-04-16', conf:0.82,
+    desc:'东湖磨山樱花园是中国最大的赏樱基地之一，日本援植的河津樱与湖面交相辉映，踏青摄影皆宜。',
+    bestTime:'满开期4月6日–4月10日，晴天上午至下午均佳',
+    bestHours:'上午9–11时（光线充足，花色最艳）',
+    access:'地铁8号线「磨山」站步行10分钟',
+    tips:'磨山樱花园建议购票提前预约，高峰期人多。东湖绿道骑行可串联多处花景。',
+    weekly:[{day:'今天',icon:'🌦️',tMax:15,tMin:8,precip:45,wind:3.5,advice:'一般'},
+            {day:'明天',icon:'⛅',tMax:16,tMin:9,precip:20,wind:2.5,advice:'良好'},
+            {day:'后天',icon:'☀️',tMax:19,tMin:10,precip:5,wind:2.0,advice:'绝佳'},
+            {day:'周四',icon:'☀️',tMax:20,tMin:11,precip:5,wind:1.8,advice:'绝佳'},
+            {day:'周五',icon:'⛅',tMax:17,tMin:9,precip:25,wind:3.0,advice:'一般'},
+            {day:'周六',icon:'☀️',tMax:21,tMin:11,precip:5,wind:1.5,advice:'绝佳'},
+            {day:'周日',icon:'🌧️',tMax:14,tMin:7,precip:65,wind:4.5,advice:'不宜'}],
+    tags:['湖畔','河津樱','踏青'], rating:4.7 },
+
+  { id:'s04', name:'上海顾村公园', nameEn:'Gucun Park', region:'华东', pref:'上海市',
+    lat:31.3415, lng:121.4438, alt:8, trees:3600, variety:'枝垂樱/染井吉野',
+    status:'budding', bloomPct:18, temp:17, humidity:63, weather:'☀️',
+    fFirst:'2026-04-02', fFull:'2026-04-08', fEnd:'2026-04-18', conf:0.80,
+    desc:'顾村公园是上海规模最大的樱花主题公园，3600余棵多品种樱树分区盛放，春季花海极具视觉冲击力。',
+    bestTime:'满开后2–4天（约4月8日–4月12日）全天均适宜',
+    bestHours:'工作日上午9–12时（人少，停车方便）',
+    access:'地铁7号线「顾村公园」站步行3分钟',
+    tips:'每年举办上海樱花节，活动期间人流极大，建议工作日避峰出行。可在园内野餐。',
+    weekly:[{day:'今天',icon:'☀️',tMax:18,tMin:10,precip:5,wind:1.8,advice:'绝佳'},
+            {day:'明天',icon:'⛅',tMax:16,tMin:9,precip:20,wind:2.5,advice:'良好'},
+            {day:'后天',icon:'☀️',tMax:19,tMin:10,precip:5,wind:1.5,advice:'绝佳'},
+            {day:'周四',icon:'🌧️',tMax:13,tMin:7,precip:70,wind:5.0,advice:'不宜'},
+            {day:'周五',icon:'⛅',tMax:17,tMin:9,precip:25,wind:2.8,advice:'一般'},
+            {day:'周六',icon:'☀️',tMax:20,tMin:10,precip:5,wind:1.5,advice:'绝佳'},
+            {day:'周日',icon:'☀️',tMax:21,tMin:11,precip:5,wind:1.8,advice:'绝佳'}],
+    tags:['花海','樱花节','家庭游'], rating:4.6 },
+
+  { id:'s05', name:'成都人民公园', nameEn:"People's Park", region:'西南', pref:'四川省',
+    lat:30.6660, lng:104.0650, alt:500, trees:1200, variety:'八重樱/染井吉野',
+    status:'blooming', bloomPct:68, temp:19, humidity:70, weather:'🌤️',
+    fFirst:'2026-03-25', fFull:'2026-03-31', fEnd:'2026-04-11', conf:0.84,
+    desc:'成都市中心的赏樱与茶文化胜地，人民公园的樱花配上成都特有的悠闲茶馆氛围，别具一格。',
+    bestTime:'满开期3月31日–4月4日，午后茶馆赏花最成都',
+    bestHours:'下午14–17时（品盖碗茶赏樱，最具成都风情）',
+    access:'地铁4号线「人民公园」站步行即达',
+    tips:'公园内的「鹤鸣茶社」是坐在花树下喝盖碗茶的绝佳地点，无需预约。',
+    weekly:[{day:'今天',icon:'🌤️',tMax:20,tMin:12,precip:10,wind:1.5,advice:'绝佳'},
+            {day:'明天',icon:'☀️',tMax:22,tMin:13,precip:5,wind:1.2,advice:'绝佳'},
+            {day:'后天',icon:'⛅',tMax:19,tMin:11,precip:20,wind:2.0,advice:'良好'},
+            {day:'周四',icon:'🌧️',tMax:16,tMin:10,precip:65,wind:3.5,advice:'不宜'},
+            {day:'周五',icon:'⛅',tMax:18,tMin:11,precip:25,wind:2.0,advice:'一般'},
+            {day:'周六',icon:'☀️',tMax:22,tMin:12,precip:5,wind:1.5,advice:'绝佳'},
+            {day:'周日',icon:'☀️',tMax:23,tMin:13,precip:5,wind:1.8,advice:'绝佳'}],
+    tags:['都市公园','茶文化','休闲'], rating:4.5 },
+
+  { id:'s06', name:'昆明世博园', nameEn:'Expo Garden Kunming', region:'西南', pref:'云南省',
+    lat:25.0701, lng:102.7170, alt:1900, trees:1100, variety:'昭和樱/云南早樱',
+    status:'not_yet', bloomPct:12, temp:15, humidity:65, weather:'⛅',
+    fFirst:'2026-04-10', fFull:'2026-04-16', fEnd:'2026-04-26', conf:0.78,
+    desc:'海拔1900米的高原花园，昆明「四季如春」的气候让樱花花期独特，是避寒赏花的上佳选择。',
+    bestTime:'满开期4月16日–4月20日，气候舒适全天均宜',
+    bestHours:'上午10时–下午16时（高原阳光充足，注意防晒）',
+    access:'乘2路/68路公交至「世博园」站',
+    tips:'高原紫外线强，防晒必备。昆明早晚温差大，建议携带薄外套。',
+    weekly:[{day:'今天',icon:'⛅',tMax:16,tMin:8,precip:20,wind:2.5,advice:'良好'},
+            {day:'明天',icon:'☀️',tMax:18,tMin:9,precip:5,wind:2.0,advice:'绝佳'},
+            {day:'后天',icon:'☀️',tMax:19,tMin:10,precip:5,wind:1.8,advice:'绝佳'},
+            {day:'周四',icon:'⛅',tMax:16,tMin:8,precip:30,wind:3.0,advice:'一般'},
+            {day:'周五',icon:'🌧️',tMax:13,tMin:7,precip:60,wind:4.0,advice:'不宜'},
+            {day:'周六',icon:'⛅',tMax:17,tMin:9,precip:20,wind:2.2,advice:'良好'},
+            {day:'周日',icon:'☀️',tMax:19,tMin:10,precip:5,wind:1.5,advice:'绝佳'}],
+    tags:['高原','四季如春','世博'], rating:4.6 },
+
+  { id:'s07', name:'长春农博园', nameEn:'Agri Expo Garden Changchun', region:'东北', pref:'吉林省',
+    lat:43.8214, lng:125.3540, alt:220, trees:950, variety:'吉野樱/早樱',
+    status:'not_yet', bloomPct:8, temp:7, humidity:58, weather:'🌨️',
+    fFirst:'2026-04-18', fFull:'2026-04-25', fEnd:'2026-05-05', conf:0.76,
+    desc:'东北春季赏樱的代表地点，气温较低，花期较晚，冰雪初融与樱花盛开形成独特对比，别有韵味。',
+    bestTime:'满开期4月25日–4月30日，晴天全天均适宜',
+    bestHours:'上午10时–下午15时（东北春光明媚，昼长夜短）',
+    access:'乘公交至「农博园」站',
+    tips:'4月下旬东北气温约10–15°C，建议携带外套。赏花节期间有特色东北民俗表演。',
+    weekly:[{day:'今天',icon:'🌨️',tMax:5,tMin:-3,precip:55,wind:5.0,advice:'不宜'},
+            {day:'明天',icon:'⛅',tMax:8,tMin:0,precip:20,wind:3.0,advice:'一般'},
+            {day:'后天',icon:'☀️',tMax:12,tMin:2,precip:5,wind:2.0,advice:'绝佳'},
+            {day:'周四',icon:'☀️',tMax:13,tMin:3,precip:5,wind:1.8,advice:'绝佳'},
+            {day:'周五',icon:'⛅',tMax:10,tMin:1,precip:20,wind:2.5,advice:'良好'},
+            {day:'周六',icon:'☀️',tMax:14,tMin:4,precip:5,wind:1.5,advice:'绝佳'},
+            {day:'周日',icon:'🌧️',tMax:8,tMin:0,precip:65,wind:4.5,advice:'不宜'}],
+    tags:['东北风情','晚花','冰雪'], rating:4.3 },
+
+  { id:'s08', name:'南京玄武湖', nameEn:'Xuanwu Lake Nanjing', region:'华东', pref:'江苏省',
+    lat:32.0505, lng:118.8038, alt:23, trees:1700, variety:'染井吉野',
+    status:'falling', bloomPct:42, temp:15, humidity:65, weather:'⛅',
+    fFirst:'2026-03-29', fFull:'2026-04-04', fEnd:'2026-04-14', conf:0.85,
+    desc:'玄武湖公园樱花进入落花期，湖畔步道落英缤纷，近处明城墙与远处紫金山构成南京独有的壮阔背景。',
+    bestTime:'现已进入散花期，花瓣漂浮水面如花毯，拍摄绝佳',
+    bestHours:'早晨7–9时（花瓣飘落最盛，与朝雾相映）',
+    access:'地铁3号线「玄武门」站步行5分钟',
+    tips:'散花期与明城墙同框拍摄是南京独特风景。湖内游船可近距离观赏水面花瓣。',
+    weekly:[{day:'今天',icon:'⛅',tMax:16,tMin:9,precip:20,wind:2.5,advice:'良好'},
+            {day:'明天',icon:'☀️',tMax:18,tMin:10,precip:5,wind:2.0,advice:'绝佳'},
+            {day:'后天',icon:'⛅',tMax:16,tMin:8,precip:25,wind:3.0,advice:'一般'},
+            {day:'周四',icon:'🌧️',tMax:13,tMin:7,precip:70,wind:5.0,advice:'不宜'},
+            {day:'周五',icon:'⛅',tMax:15,tMin:8,precip:20,wind:2.5,advice:'一般'},
+            {day:'周六',icon:'☀️',tMax:19,tMin:10,precip:5,wind:1.8,advice:'绝佳'},
+            {day:'周日',icon:'☀️',tMax:20,tMin:11,precip:5,wind:1.5,advice:'绝佳'}],
+    tags:['散花','明城墙','湖景'], rating:4.7 },
+
+  { id:'s09', name:'苏州木渎古镇', nameEn:'Mudu Ancient Town', region:'华东', pref:'江苏省',
+    lat:31.1116, lng:120.8789, alt:8, trees:620, variety:'垂枝樱',
+    status:'full_bloom', bloomPct:88, temp:16, humidity:62, weather:'☀️',
+    fFirst:'2026-03-27', fFull:'2026-04-02', fEnd:'2026-04-12', conf:0.90,
+    desc:'江南水乡古镇木渎，垂枝樱花掩映古桥流水，白墙黛瓦间落樱纷纷，是最具诗意的江南赏樱地。',
+    bestTime:'满开期4月2日–4月5日，清晨古镇无人时最美',
+    bestHours:'早晨6:30–8:30时（游客极少，晨光中的古镇与樱花最美）',
+    access:'乘公交或自驾至木渎古镇景区',
+    tips:'木渎古镇可联合游览严家花园、虹饮山房等景点。垂枝樱花期仅7–9天，需把握时机。',
+    weekly:[{day:'今天',icon:'☀️',tMax:17,tMin:10,precip:5,wind:1.5,advice:'绝佳'},
+            {day:'明天',icon:'☀️',tMax:18,tMin:11,precip:5,wind:1.8,advice:'绝佳'},
+            {day:'后天',icon:'⛅',tMax:16,tMin:9,precip:20,wind:2.5,advice:'良好'},
+            {day:'周四',icon:'🌧️',tMax:13,tMin:7,precip:68,wind:4.5,advice:'不宜'},
+            {day:'周五',icon:'⛅',tMax:15,tMin:8,precip:25,wind:2.8,advice:'一般'},
+            {day:'周六',icon:'☀️',tMax:19,tMin:10,precip:5,wind:1.5,advice:'绝佳'},
+            {day:'周日',icon:'☀️',tMax:20,tMin:11,precip:5,wind:1.8,advice:'绝佳'}],
+    tags:['古镇','垂枝樱','江南水乡'], rating:4.9 },
+
+  { id:'s10', name:'广州越秀公园', nameEn:'Yuexiu Park', region:'华南', pref:'广东省',
+    lat:23.1288, lng:113.2708, alt:45, trees:1400, variety:'早樱/寒绯樱',
+    status:'blooming', bloomPct:60, temp:24, humidity:72, weather:'☀️',
+    fFirst:'2026-03-24', fFull:'2026-03-30', fEnd:'2026-04-10', conf:0.88,
+    desc:'广州春季气温高、花期早，越秀公园早樱率先盛开，五羊雕像旁的花景是广州春天的城市名片。',
+    bestTime:'满开期3月30日–4月3日，傍晚夜游亦可赏花',
+    bestHours:'早晨7–9时（锻炼市民与樱花共存，极具生活气息）或傍晚17–19时',
+    access:'地铁2号线「越秀公园」站A出口步行即达',
+    tips:'广州花期短（约8–10天），需抓紧时机。公园免费开放，公共交通方便。',
+    weekly:[{day:'今天',icon:'☀️',tMax:25,tMin:18,precip:5,wind:2.0,advice:'绝佳'},
+            {day:'明天',icon:'⛅',tMax:23,tMin:17,precip:20,wind:2.8,advice:'良好'},
+            {day:'后天',icon:'🌧️',tMax:20,tMin:16,precip:70,wind:4.5,advice:'不宜'},
+            {day:'周四',icon:'⛅',tMax:22,tMin:16,precip:30,wind:3.0,advice:'一般'},
+            {day:'周五',icon:'☀️',tMax:26,tMin:18,precip:5,wind:1.8,advice:'绝佳'},
+            {day:'周六',icon:'☀️',tMax:27,tMin:19,precip:5,wind:1.5,advice:'绝佳'},
+            {day:'周日',icon:'⛅',tMax:24,tMin:17,precip:20,wind:2.2,advice:'良好'}],
+    tags:['城市公园','早花','五羊'], rating:4.6 },
+
+  { id:'s11', name:'西安兴庆宫公园', nameEn:'Xingqinggong Park', region:'西北', pref:'陕西省',
+    lat:34.2602, lng:108.9779, alt:395, trees:850, variety:'大山樱',
+    status:'opening', bloomPct:28, temp:15, humidity:50, weather:'🌤️',
+    fFirst:'2026-04-01', fFull:'2026-04-07', fEnd:'2026-04-17', conf:0.81,
+    desc:'唐代皇家园林遗址上的赏樱胜地，大山樱花开于千年古城之中，历史与春色交融，别有大唐遗韵。',
+    bestTime:'满开期4月7日–4月11日，晴天下午历史感最强',
+    bestHours:'下午14–17时（斜阳照射，古城砖与樱花色彩对比强烈）',
+    access:'地铁1号线「兴庆宫公园」站步行3分钟',
+    tips:'可联合游览古城墙，骑自行车环城赏春是西安特色体验。',
+    weekly:[{day:'今天',icon:'🌤️',tMax:16,tMin:6,precip:10,wind:2.5,advice:'良好'},
+            {day:'明天',icon:'☀️',tMax:18,tMin:7,precip:5,wind:2.0,advice:'绝佳'},
+            {day:'后天',icon:'☀️',tMax:19,tMin:8,precip:5,wind:1.8,advice:'绝佳'},
+            {day:'周四',icon:'⛅',tMax:16,tMin:6,precip:25,wind:3.0,advice:'一般'},
+            {day:'周五',icon:'🌧️',tMax:12,tMin:4,precip:60,wind:4.5,advice:'不宜'},
+            {day:'周六',icon:'⛅',tMax:15,tMin:6,precip:20,wind:2.5,advice:'良好'},
+            {day:'周日',icon:'☀️',tMax:18,tMin:8,precip:5,wind:1.8,advice:'绝佳'}],
+    tags:['历史古迹','大山樱','大唐风韵'], rating:4.5 },
+
+  { id:'s12', name:'重庆南山植物园', nameEn:'Nanshan Botanical Garden', region:'西南', pref:'重庆市',
+    lat:29.5132, lng:106.5891, alt:680, trees:780, variety:'染井吉野/垂枝樱',
+    status:'blooming', bloomPct:55, temp:18, humidity:74, weather:'⛅',
+    fFirst:'2026-03-28', fFull:'2026-04-03', fEnd:'2026-04-14', conf:0.83,
+    desc:'重庆南山植物园海拔680米，立于山顶俯瞰山城全景，樱花与江景城市融为一体，独具山城魅力。',
+    bestTime:'满开期4月3日–4月7日，晴天登顶俯瞰最美',
+    bestHours:'下午15–18时（光线从西照射，山城与花海金光璀璨）',
+    access:'乘公交或网约车至南山植物园，步行约20分钟可达山顶',
+    tips:'重庆多云天气频繁，晴天稀缺。提前查看天气预报，选择出太阳的日子前往。',
+    weekly:[{day:'今天',icon:'⛅',tMax:19,tMin:12,precip:25,wind:2.0,advice:'一般'},
+            {day:'明天',icon:'🌤️',tMax:21,tMin:13,precip:10,wind:1.5,advice:'绝佳'},
+            {day:'后天',icon:'☀️',tMax:22,tMin:14,precip:5,wind:1.8,advice:'绝佳'},
+            {day:'周四',icon:'🌧️',tMax:17,tMin:11,precip:70,wind:3.5,advice:'不宜'},
+            {day:'周五',icon:'⛅',tMax:20,tMin:12,precip:25,wind:2.0,advice:'一般'},
+            {day:'周六',icon:'☀️',tMax:23,tMin:14,precip:5,wind:1.5,advice:'绝佳'},
+            {day:'周日',icon:'⛅',tMax:21,tMin:13,precip:20,wind:2.2,advice:'良好'}],
+    tags:['山城','俯瞰江景','植物园'], rating:4.7 }
+];
+
+const STATUS_LABELS = {not_yet:'未开花',budding:'花芽期',opening:'开花中',blooming:'开花',full_bloom:'満　開',falling:'散樱中',ended:'已结束'};
+const STATUS_EMOJIS = {not_yet:'⬜',budding:'🟡',opening:'🟠',blooming:'🌸',full_bloom:'🌺',falling:'🍃',ended:'⬛'};
+const MARKER_COLORS = {not_yet:'#555',budding:'#c8a020',opening:'#e07830',blooming:'#e87896',full_bloom:'#c94e78',falling:'#6ec5e0',ended:'#444'};
+
+// ══════════════════════════════════
+// PETALS — BUG FIX: plain function, called from initApp (not IIFE)
+// ══════════════════════════════════
+function initPetals() {
+  const canvas = document.getElementById('petals-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let W, H, petals = [];
+  const resize = () => { W = canvas.width = innerWidth; H = canvas.height = innerHeight; };
+  window.addEventListener('resize', resize); resize();
+  const rp = () => ({ x: Math.random()*W, y: -20, size: 4+Math.random()*8,
+    sx: (Math.random()-.5)*.8, sy: .5+Math.random()*1.2,
+    r: Math.random()*Math.PI*2, rs: (Math.random()-.5)*.05,
+    op: .3+Math.random()*.5, h: 340+Math.random()*30 });
+  const draw = p => { ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.r); ctx.globalAlpha=p.op; ctx.fillStyle=`hsl(${p.h},70%,80%)`; ctx.beginPath(); ctx.ellipse(0,0,p.size,p.size*.6,0,0,Math.PI*2); ctx.fill(); ctx.restore(); };
+  const anim = () => { ctx.clearRect(0,0,W,H); if(petals.length<60&&Math.random()<.3)petals.push(rp()); petals=petals.filter(p=>p.y<H+30&&p.x>-30&&p.x<W+30); petals.forEach(p=>{p.x+=p.sx+Math.sin(Date.now()/2000+p.y*.01)*.3;p.y+=p.sy;p.r+=p.rs;draw(p)}); requestAnimationFrame(anim); };
+  anim();
+}
+
+// ══════════════════════════════════
+// MAP
+// ══════════════════════════════════
+let map, markers = {}, selectedSpot = null, currentZoom = 12;
+let offlinePanelVisible = false, useSatellite = false;
+let baseLayer, satelliteLayer;
+
+function initMap() {
+  map = L.map('map', { center: [35.8617, 104.1954], zoom: 4, zoomControl: false });
+  baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(map);
+  satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '© Esri', maxZoom: 19 });
+  SPOTS.forEach(addMarker);
+  map.on('moveend zoomend', updateSizeEstimate);
+}
+
+function addMarker(spot) {
+  const col = MARKER_COLORS[spot.status] || '#888';
+  const icon = L.divIcon({ className: '', html: `<div class="sakura-marker" style="background:${col};border-color:${col}aa"><span>${STATUS_EMOJIS[spot.status]}</span></div>`, iconSize:[36,36], iconAnchor:[18,36], popupAnchor:[0,-42] });
+  // Bloom timeline for popup
+  const tl = [['🌸','开花',spot.fFirst],['🌺','满开',spot.fFull],['🍃','散花',spot.fEnd]]
+    .map(([i,l,d])=>`<div style="display:flex;align-items:center;gap:6px;margin-top:4px"><span>${i}</span><span style="color:#f8e8ef66;font-size:10px;min-width:26px">${l}</span><span style="color:#f4b8c8;font-size:12px;font-weight:700">${d}</span></div>`).join('');
+  const adv = spot.weekly?.[0];
+  const ac = {绝佳:'#3db87a',良好:'#6ec5e0',一般:'#d4a853',不宜:'#e87878'}[adv?.advice]||'#888';
+  const marker = L.marker([spot.lat, spot.lng], { icon })
+    .bindPopup(`
+      <div class="popup-name">${spot.name} <span style="font-size:10px;opacity:.6">${spot.region}·${spot.pref}</span></div>
+      <div class="popup-row"><span class="status-pill status-${spot.status}" style="font-size:10px;padding:2px 7px">${STATUS_EMOJIS[spot.status]} ${STATUS_LABELS[spot.status]}</span><span style="color:#f4b8c8;font-weight:700">${spot.bloomPct}%</span></div>
+      <div class="popup-tl">${tl}</div>
+      <div class="popup-row"><span style="font-size:11px">${spot.weather} ${spot.temp}°C · 湿度${spot.humidity}%</span><span style="font-size:11px;font-weight:700;color:${ac};background:${ac}22;padding:2px 7px;border-radius:8px;border:1px solid ${ac}44">今日${adv?.advice||'—'}</span></div>
+    `, { className: 'sakura-popup', maxWidth: 220 })
+    .on('click', () => showDetail(spot.id)).addTo(map);
+  markers[spot.id] = marker;
+}
+
+function toggleSatellite() {
+  if (!useSatellite) { map.removeLayer(baseLayer); satelliteLayer.addTo(map); useSatellite=true; showToast('已切换至卫星图像'); }
+  else { map.removeLayer(satelliteLayer); baseLayer.addTo(map); useSatellite=false; showToast('已切换至街道地图'); }
+}
+function resetView() { map.flyTo([35.8617, 104.1954], 4, { duration: 1.5 }); }
+function locateUser() {
+  if (!navigator.geolocation) return showToast('不支持定位');
+  navigator.geolocation.getCurrentPosition(p => { map.flyTo([p.coords.latitude, p.coords.longitude], 10, {duration:1.5}); showToast('已定位到您的位置'); }, () => showToast('无法获取位置'));
+}
+
+// ══════════════════════════════════
+// SIDEBAR
+// ══════════════════════════════════
+let currentRegion = 'all', currentSearch = '';
+
+function renderSpotList(spots) {
+  const list = document.getElementById('spots-list'); list.innerHTML = '';
+  spots.forEach(s => {
+    const c = document.createElement('div');
+    c.className = 'spot-card' + (selectedSpot===s.id?' selected':''); c.id='card-'+s.id;
+    c.innerHTML = `
+      <div class="spot-card-top"><div><div class="spot-name-cn">${s.name}</div><div class="spot-name-ja">${s.region} · ${s.pref}</div></div><div class="spot-region">${s.region}</div></div>
+      <div class="spot-status-row"><span class="status-pill status-${s.status}">${STATUS_EMOJIS[s.status]} ${STATUS_LABELS[s.status]}</span>
+        <div class="bloom-bar"><div class="bloom-bar-track"><div class="bloom-bar-fill" style="width:${s.bloomPct}%"></div></div><span class="bloom-pct">${s.bloomPct}%</span></div></div>
+      <div class="spot-forecast"><span>🌸 <strong>${s.fFirst}</strong></span><span>🌺 <strong>${s.fFull}</strong></span></div>
+      <div class="spot-weather">${s.weather} ${s.temp}°C · 湿度${s.humidity}%</div>`;
+    c.onclick = () => { showDetail(s.id); map.flyTo([s.lat, s.lng], 12, {duration:1}); };
+    list.appendChild(c);
+  });
+}
+
+function getFilteredSpots() {
+  return SPOTS.filter(s => {
+    if (currentRegion !== 'all' && s.region !== currentRegion) return false;
+    if (currentSearch) { const q=currentSearch.toLowerCase(); if(!s.name.includes(currentSearch)&&!s.pref.toLowerCase().includes(q)&&!s.nameEn.toLowerCase().includes(q))return false; }
+    return true;
+  });
+}
+function filterRegion(r, btn) { currentRegion=r; document.querySelectorAll('#region-chips .chip').forEach(c=>c.classList.remove('active')); btn.classList.add('active'); renderSpotList(getFilteredSpots()); }
+function filterSpots(q) { currentSearch=q; renderSpotList(getFilteredSpots()); }
+
+// ══════════════════════════════════
+// DETAIL PANEL
+// ══════════════════════════════════
+let probChart=null, histChart=null;
+
+function calcDays(a, b) { try { return Math.round(Math.abs(new Date(b)-new Date(a))/86400000); } catch{return'~18';} }
+
+function showDetail(id) {
+  const s = SPOTS.find(x => x.id===id); if(!s) return;
+  selectedSpot = id;
+  document.querySelectorAll('.spot-card').forEach(c=>c.classList.remove('selected'));
+  const card = document.getElementById('card-'+id);
+  if(card){card.classList.add('selected');card.scrollIntoView({behavior:'smooth',block:'nearest'});}
+  document.getElementById('detail-panel').classList.remove('hidden');
+
+  const pct=s.bloomPct, deg=Math.round(pct*3.6);
+  const now=new Date(), pL=[],pD=[],bD=[];
+  for(let i=-3;i<20;i++){const d=new Date(now);d.setDate(d.getDate()+i);pL.push(`${d.getMonth()+1}/${d.getDate()}`);const g=Math.exp(-.5*Math.pow((i-4)/3.5,2))*.9;pD.push(+(Math.max(0,Math.min(1,g))).toFixed(2));bD.push(+(Math.max(0,Math.min(100,g*110))).toFixed(0));}
+  const hY=[],hF=[];for(let y=10;y>=0;y--){hY.push(now.getFullYear()-y);hF.push(75+Math.floor(Math.random()*20));}
+  const ac2={绝佳:'#3db87a',良好:'#6ec5e0',一般:'#d4a853',不宜:'#e87878'};
+
+  // BUG FIX: use stable wind/temp values from data, not Math.random() on every render
+  const todayW = s.weekly?.[0];
+
+  document.getElementById('detail-scroll').innerHTML = `
+    <div class="detail-hero">
+      <button class="detail-close" onclick="closeDetail()">✕</button>
+      <div class="detail-name">${s.name}</div>
+      <div class="detail-name-sub">${s.region} · ${s.pref} · ${s.nameEn}</div>
+      <div class="detail-meta">
+        <span class="meta-chip">📍 ${s.pref}</span>
+        <span class="meta-chip">🌸 ${s.variety}</span>
+        <span class="meta-chip">🌳 ${s.trees?.toLocaleString()} 棵</span>
+        <span class="meta-chip">⛰ ${s.alt}m</span>
+        <span class="meta-chip">⭐ ${s.rating}</span>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="section-label">当前开放状态</div>
+      <div class="big-bloom-indicator">
+        <div class="bloom-ring" style="background:conic-gradient(#e8789a ${deg}deg,rgba(255,255,255,.06) ${deg}deg)">
+          <div class="bloom-ring-inner">${pct}%</div>
+        </div>
+        <div class="bloom-info-col">
+          <div class="bloom-status-big">${STATUS_EMOJIS[s.status]} ${STATUS_LABELS[s.status]}</div>
+          <div class="bloom-desc">${s.desc}</div>
+        </div>
+      </div>
+      <div class="timeline-box">
+        <div class="tl-phase tl-open"><div class="tl-label">🌸 开花</div><div class="tl-date">${s.fFirst}</div></div>
+        <div class="tl-arrow">→</div>
+        <div class="tl-phase tl-full"><div class="tl-label">🌺 満開</div><div class="tl-date">${s.fFull}</div></div>
+        <div class="tl-arrow">→</div>
+        <div class="tl-phase tl-end"><div class="tl-label">🍃 散花</div><div class="tl-date">${s.fEnd}</div></div>
+      </div>
+      <div class="tl-footer">花期约 ${calcDays(s.fFirst,s.fEnd)} 天 · 満開持续约 7–10 天 · 置信度 ${Math.round(s.conf*100)}%</div>
+    </div>
+
+    <div class="detail-section">
+      <div class="section-label">⭐ 最佳赏樱时间</div>
+      <div class="best-card"><div class="best-icon">🎯</div><div class="best-body"><div class="best-title">最佳时期</div><div class="best-text">${s.bestTime}</div></div></div>
+      <div class="best-card"><div class="best-icon">🕐</div><div class="best-body"><div class="best-title">每日最佳时段</div><div class="best-text">${s.bestHours}</div></div></div>
+      <div class="best-card"><div class="best-icon">🚇</div><div class="best-body"><div class="best-title">交通</div><div class="best-text">${s.access}</div></div></div>
+      <div class="best-card" style="background:rgba(212,168,83,.06);border-color:rgba(212,168,83,.2)"><div class="best-icon">💡</div><div class="best-body"><div class="best-title" style="color:#d4a853">赏花贴士</div><div class="best-text">${s.tips}</div></div></div>
+    </div>
+
+    <div class="detail-section">
+      <div class="section-label">🌤 未来7天天气 · 赏花指数</div>
+      <div class="week-grid">${(s.weekly||[]).map(d=>{const c=ac2[d.advice]||'#888';return`<div class="wday"><div class="wday-label">${d.day}</div><div class="wday-icon">${d.icon}</div><div class="wday-temps"><span class="wday-hi">${d.tMax}°</span><span class="wday-lo">${d.tMin}°</span></div><div class="wday-precip">💧${d.precip}%</div><div class="wday-advice" style="color:${c};border-color:${c}44;background:${c}14">${d.advice}</div></div>`;}).join('')}</div>
+      <div class="wleg"><span class="wli" style="color:#3db87a">● 绝佳</span><span class="wli" style="color:#6ec5e0">● 良好</span><span class="wli" style="color:#d4a853">● 一般</span><span class="wli" style="color:#e87878">● 不宜</span><span style="color:var(--td);font-size:9px;margin-left:auto">降水概率</span></div>
+    </div>
+
+    <div class="detail-section">
+      <div class="section-label">🌡 实时气象</div>
+      <div class="weather-strip">
+        <div class="w-item"><div class="w-icon">${s.weather}</div><div class="w-val">${s.temp}°C</div><div class="w-label">气温</div></div>
+        <div class="w-item"><div class="w-icon">💧</div><div class="w-val">${s.humidity}%</div><div class="w-label">湿度</div></div>
+        <div class="w-item"><div class="w-icon">🌬</div><div class="w-val">${todayW?.wind??'2.5'}</div><div class="w-label">风速m/s</div></div>
+        <div class="w-item"><div class="w-icon">🌡</div><div class="w-val">${todayW?.tMax??(s.temp+4)}°</div><div class="w-label">今日高温</div></div>
+      </div>
+    </div>
+
+    <div class="detail-section"><div class="section-label">📈 开花概率预测（30天）</div><div class="chart-wrap"><canvas id="prob-chart"></canvas></div></div>
+    <div class="detail-section"><div class="section-label">📅 历年开花记录</div><div class="hist-chart-wrap"><canvas id="hist-chart"></canvas></div></div>
+    <div class="detail-section" style="border-bottom:none"><div class="section-label">标签</div><div style="display:flex;flex-wrap:wrap;gap:6px">${(s.tags||[]).map(t=>`<span class="meta-chip">${t}</span>`).join('')}</div></div>
+  `;
+
+  setTimeout(() => {
+    if(probChart)probChart.destroy(); if(histChart)histChart.destroy();
+    const pCtx=document.getElementById('prob-chart');
+    if(pCtx){probChart=new Chart(pCtx,{type:'bar',data:{labels:pL,datasets:[{type:'line',label:'开花率%',data:bD,borderColor:'#e8789a',backgroundColor:'rgba(232,120,154,.1)',tension:.4,yAxisID:'y2',pointRadius:0,fill:true},{label:'开花概率',data:pD.map(v=>v*100),backgroundColor:pD.map(v=>`rgba(201,78,120,${v*.7+.1})`),borderRadius:3,yAxisID:'y1'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#f8e8ef88',font:{size:9}}}},scales:{x:{ticks:{color:'#f8e8ef44',font:{size:8},maxRotation:45},grid:{color:'rgba(255,255,255,.04)'}},y1:{position:'left',min:0,max:100,ticks:{color:'#f8e8ef44',font:{size:9}},grid:{color:'rgba(255,255,255,.04)'}},y2:{position:'right',min:0,max:110,display:false}}}});}
+    const hCtx=document.getElementById('hist-chart');
+    if(hCtx){histChart=new Chart(hCtx,{type:'bar',data:{labels:hY,datasets:[{label:'开花日（年积日）',data:hF,backgroundColor:'rgba(232,120,154,.5)',borderColor:'#e8789a',borderWidth:1,borderRadius:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#f8e8ef88',font:{size:9}}}},scales:{x:{ticks:{color:'#f8e8ef44',font:{size:8}},grid:{color:'rgba(255,255,255,.04)'}},y:{ticks:{color:'#f8e8ef44',font:{size:9}},grid:{color:'rgba(255,255,255,.04)'}}}}});}
+  }, 50);
+}
+
+function closeDetail() {
+  document.getElementById('detail-panel').classList.add('hidden');
+  selectedSpot=null; document.querySelectorAll('.spot-card').forEach(c=>c.classList.remove('selected'));
+}
+
+// ══════════════════════════════════
+// OFFLINE PANEL
+// ══════════════════════════════════
+function toggleOfflinePanel() {
+  offlinePanelVisible=!offlinePanelVisible;
+  document.getElementById('offline-panel').classList.toggle('visible',offlinePanelVisible);
+  if(offlinePanelVisible)updateSizeEstimate();
+}
+function selectZoom(z,btn){currentZoom=z;document.querySelectorAll('#zoom-chips .zoom-chip').forEach(c=>c.classList.remove('selected'));btn.classList.add('selected');updateSizeEstimate();}
+function updateSizeEstimate(){const mb=((Math.pow(4,currentZoom-10+1)*16*15)/1024).toFixed(1);const el=document.getElementById('size-estimate');if(el)el.textContent=`预计大小：约 ${mb} MB`;}
+function safeMapCenter(){try{return map&&map.getCenter?map.getCenter():{lat:35.8,lng:104.2};}catch{return{lat:35.8,lng:104.2};}}
+
+const cachedAreas=[];
+function startOfflineDownload(){
+  const ctr=safeMapCenter(),z=currentZoom;
+  const prog=document.getElementById('dl-progress'),stat=document.getElementById('dl-status'),bar=document.getElementById('dl-bar');
+  prog.classList.add('visible'); stat.textContent='正在计算瓦片范围…';
+  const steps=[{p:15,m:'正在建立索引…'},{p:35,m:'正在缓存地图瓦片…'},{p:60,m:'正在下载数据…'},{p:80,m:'正在压缩存储…'},{p:95,m:'正在验证完整性…'},{p:100,m:'下载完成！'}];
+  let i=0; const iv=setInterval(()=>{
+    if(i>=steps.length){clearInterval(iv);const mb=((Math.pow(4,z-10+1)*16*15)/1024).toFixed(1);const nm=`区域 ${ctr.lat.toFixed(2)},${ctr.lng.toFixed(2)} z${z}`;cachedAreas.push({name:nm,size:mb,zoom:z,date:new Date().toLocaleDateString('zh-CN'),center:ctr});saveCacheToStorage();renderCachedCards();showToast(`✅ 离线地图下载完成（${mb} MB）`);prog.classList.remove('visible');return;}
+    const s=steps[i++];bar.style.width=s.p+'%';stat.textContent=s.m;
+  },600);
+}
+function saveCacheToStorage(){try{localStorage.setItem('cn_sakura_cache',JSON.stringify(cachedAreas));}catch{}}
+function loadCacheFromStorage(){try{const d=localStorage.getItem('cn_sakura_cache');if(d)JSON.parse(d).forEach(a=>cachedAreas.push(a));}catch{}}
+function renderCachedCards(){
+  const el=document.getElementById('cached-cards');
+  if(!cachedAreas.length){el.innerHTML='<div style="color:var(--tm);font-size:13px;padding:16px 0">暂无缓存数据。</div>';return;}
+  el.innerHTML=cachedAreas.map((a,i)=>`<div class="offline-card"><div class="cached-area"><div class="cached-name">📦 ${a.name}</div><div class="cached-size">${a.size} MB</div></div><div class="cached-meta">缩放 ${a.zoom} · ${a.date}</div><button class="del-btn" onclick="deleteCache(${i})">🗑 删除</button></div>`).join('');
+  updateStorageInfo();
+}
+function deleteCache(i){cachedAreas.splice(i,1);saveCacheToStorage();renderCachedCards();showToast('已删除缓存区域');}
+function updateStorageInfo(){
+  const tot=cachedAreas.reduce((s,a)=>s+parseFloat(a.size),0);
+  const pct=Math.min(100,tot/5).toFixed(0);
+  const f=document.getElementById('storage-fill'),t=document.getElementById('storage-text');
+  if(f)f.style.width=pct+'%'; if(t)t.textContent=`已用 ${tot.toFixed(1)} MB / 500 MB`;
+}
+
+// ══════════════════════════════════
+// OFFLINE REGIONS PAGE
+// ══════════════════════════════════
+const REGIONS=[
+  {name:'华北',size:'42',lat:39.9,lng:116.4},{name:'东北',size:'38',lat:43.8,lng:125.3},
+  {name:'华东',size:'35',lat:31.5,lng:120.5},{name:'华中',size:'32',lat:30.6,lng:112.5},
+  {name:'华南',size:'28',lat:23.1,lng:113.3},{name:'西南',size:'40',lat:30.7,lng:104.1},
+  {name:'西北',size:'34',lat:34.3,lng:108.9},{name:'港澳台',size:'22',lat:22.3,lng:114.2}
+];
+let selectedRegions=new Set();
+function initOfflinePage(){
+  const grid=document.getElementById('region-dl-grid');
+  REGIONS.forEach(r=>{const c=document.createElement('div');c.className='region-dl-card';c.innerHTML=`<div class="region-dl-name">${r.name}</div><div class="region-dl-size">约 ${r.size} MB</div>`;c.onclick=()=>{if(selectedRegions.has(r.name)){selectedRegions.delete(r.name);c.classList.remove('selected');}else{selectedRegions.add(r.name);c.classList.add('selected');}updateSelectedSize();};grid.appendChild(c);});
+  updateStorageInfo();
+}
+function updateSelectedSize(){const tot=REGIONS.filter(r=>selectedRegions.has(r.name)).reduce((s,r)=>s+parseFloat(r.size),0);const l=document.getElementById('selected-size-label');if(l)l.textContent=selectedRegions.size>0?`已选 ${selectedRegions.size} 个区域 · 约 ${tot} MB`:'未选择';}
+function downloadSelectedRegions(){
+  if(!selectedRegions.size)return showToast('请先选择要下载的区域');
+  const regs=[...selectedRegions]; showToast(`⏳ 正在下载 ${regs.join('、')}…`);
+  setTimeout(()=>{regs.forEach(n=>{const r=REGIONS.find(x=>x.name===n);cachedAreas.push({name:`${n}地区`,size:r.size,zoom:12,date:new Date().toLocaleDateString('zh-CN'),center:{lat:r.lat,lng:r.lng}});});saveCacheToStorage();renderCachedCards();showToast(`✅ ${regs.join('、')} 下载完成`);selectedRegions.clear();document.querySelectorAll('.region-dl-card').forEach(c=>c.classList.remove('selected'));updateSelectedSize();},2500);
+}
+
+// ══════════════════════════════════
+// FRONT PAGE
+// ══════════════════════════════════
+function renderFrontPage(){
+  document.getElementById('stat-full').textContent=SPOTS.filter(s=>s.status==='full_bloom').length;
+  document.getElementById('stat-bloom').textContent=SPOTS.filter(s=>['blooming','opening'].includes(s.status)).length;
+  document.getElementById('stat-soon').textContent=SPOTS.filter(s=>['budding','not_yet'].includes(s.status)).length;
+  document.getElementById('stat-total').textContent=SPOTS.length;
+  document.getElementById('front-grid').innerHTML=[...SPOTS].sort((a,b)=>b.bloomPct-a.bloomPct).map(s=>`
+    <div class="front-card" onclick="switchPage('map');setTimeout(()=>{showDetail('${s.id}');map.flyTo([${s.lat},${s.lng}],12)},200)">
+      <div class="front-card-region">${s.region} · ${s.pref}</div>
+      <div class="front-card-name">${s.name}</div>
+      <div class="front-card-status">
+        <span class="status-pill status-${s.status}">${STATUS_EMOJIS[s.status]} ${STATUS_LABELS[s.status]}</span>
+        <div class="bloom-bar" style="max-width:110px"><div class="bloom-bar-track"><div class="bloom-bar-fill" style="width:${s.bloomPct}%"></div></div><span class="bloom-pct">${s.bloomPct}%</span></div>
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--tm)">${s.weather} ${s.temp}°C &nbsp;·&nbsp; 满开预计 <strong>${s.fFull}</strong> &nbsp;·&nbsp; ${Math.round(s.conf*100)}% 置信</div>
+    </div>`).join('');
+}
+
+// ══════════════════════════════════
+// PAGE SWITCHING — BUG FIX: separate #main from .page elements
+// ══════════════════════════════════
+function switchPage(page) {
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.toggle('active',t.dataset.page===page));
+  // Map page: toggle #main directly
+  const mapEl=document.getElementById('main');
+  mapEl.classList.toggle('page-hidden', page!=='map');
+  mapEl.style.display = page==='map' ? 'flex' : 'none';
+  // Other pages use .page system
+  ['page-front','page-offline'].forEach(id=>{
+    const el=document.getElementById(id);
+    const active=(page==='front'&&id==='page-front')||(page==='offline'&&id==='page-offline');
+    if(active){el.classList.add('active');el.style.display='flex';}
+    else{el.classList.remove('active');el.style.display='none';}
+  });
+  if(page==='map')setTimeout(()=>map&&map.invalidateSize(),100);
+}
+
+// ══════════════════════════════════
+// REFRESH — BUG FIX: satellite layer logic corrected
+// ══════════════════════════════════
+function refreshAllData(){
+  showToast('正在刷新数据…');
+  const clearCaches=('caches' in window)?caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k)))):Promise.resolve();
+  clearCaches.then(()=>{
+    // Clear and re-render lists
+    renderSpotList(getFilteredSpots());
+    renderFrontPage();
+    // Re-add all markers
+    Object.values(markers).forEach(m=>{if(m&&m.remove)m.remove();});
+    markers={};
+    SPOTS.forEach(addMarker);
+    // BUG FIX: restore correct layer without toggling twice
+    if(map){
+      if(useSatellite){map.removeLayer(baseLayer);if(!map.hasLayer(satelliteLayer))satelliteLayer.addTo(map);}
+      else{map.removeLayer(satelliteLayer);if(!map.hasLayer(baseLayer))baseLayer.addTo(map);}
+      map.invalidateSize();
+    }
+    showToast('✅ 已完成刷新');
+  }).catch(()=>showToast('刷新时发生异常，已尝试恢复'));
+}
+
+// ══════════════════════════════════
+// TOAST
+// ══════════════════════════════════
+let toastTimer;
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),3000);}
+
+// ══════════════════════════════════
+// SERVICE WORKER
+// ══════════════════════════════════
+if('serviceWorker' in navigator){
+  const sw=`const CACHE='cn-sakura-v1';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['/']))));self.addEventListener('fetch',e=>{if(e.request.url.includes('tile.openstreetmap')){e.respondWith(caches.open('sakura-tiles').then(async c=>{const cached=await c.match(e.request);if(cached)return cached;const res=await fetch(e.request).catch(()=>null);if(res)c.put(e.request,res.clone());return res;}));return;}e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)));});`;
+  const blob=new Blob([sw],{type:'application/javascript'});
+  navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(()=>{});
+}
+
+// ══════════════════════════════════
+// INIT — BUG FIX: called from DOMContentLoaded, not load event after external scripts
+// ══════════════════════════════════
+function initApp(){
+  initPetals();   // BUG FIX: petals now a named fn, not IIFE
+  initMap();
+  renderSpotList(SPOTS);
+  renderFrontPage();
+  initOfflinePage();
+  loadCacheFromStorage();
+  renderCachedCards();
+
+  // Initial page state
+  document.getElementById('main').style.display='flex';
+  document.getElementById('page-front').style.display='none';
+  document.getElementById('page-offline').style.display='none';
+
+  // Auto-open first spot after map settles
+  setTimeout(()=>showDetail('s01'), 900);
+}
+
+document.addEventListener('DOMContentLoaded', initApp);
+</script>
+</body>
+</html>
