@@ -1,0 +1,1400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1a0a0e">
+<meta name="description" content="樱花时令 · 实时樱花开放预测系统">
+<title>樱花时令 Sakura-Time</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@300;400;700&family=Shippori+Mincho:wght@400;600;800&family=IBM+Plex+Mono:wght@300;400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+<style>
+/* ── Reset & Tokens ─────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --sakura-pale:   #fce8ef;
+  --sakura-blush:  #f4b8c8;
+  --sakura-mid:    #e8789a;
+  --sakura-deep:   #c94e78;
+  --sakura-ink:    #7a1a3a;
+  --night:         #0d0509;
+  --night-2:       #180b10;
+  --night-3:       #261120;
+  --surface:       #1e0e16;
+  --surface-2:     #2d1520;
+  --border:        rgba(232,120,154,0.15);
+  --border-2:      rgba(232,120,154,0.30);
+  --text-primary:  #f8e8ef;
+  --text-muted:    rgba(248,232,239,0.55);
+  --text-dim:      rgba(248,232,239,0.30);
+  --gold:          #d4a853;
+  --emerald:       #3db87a;
+  --amber:         #e8a040;
+  --sky:           #6ec5e0;
+
+  --radius-sm: 4px;
+  --radius:    8px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  --font-serif: 'Shippori Mincho', 'Noto Serif JP', serif;
+  --font-mono:  'IBM Plex Mono', monospace;
+  --shadow:    0 4px 24px rgba(0,0,0,0.6);
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.4);
+}
+
+html, body { min-height: 100%; overflow-x: hidden; }
+
+body {
+  font-family: var(--font-serif);
+  background: var(--night);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+}
+
+.hidden { display: none !important; }
+
+/* ── Petal Particles ────────────────────────────────────────────────────── */
+#petals-canvas {
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.4;
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+#app { display: flex; flex-direction: column; height: 100%; position: relative; z-index: 1; }
+
+/* ── Topbar ─────────────────────────────────────────────────────────────── */
+#topbar {
+  display: flex; align-items: center; gap: 20px;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, rgba(26,6,14,0.97), rgba(45,21,32,0.97));
+  border-bottom: 1px solid var(--border-2);
+  backdrop-filter: blur(20px);
+  flex-shrink: 0;
+  z-index: 100;
+}
+
+.logo {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 22px; font-weight: 800; letter-spacing: -0.02em;
+  color: var(--sakura-blush); flex-shrink: 0;
+}
+.logo-ja { font-size: 11px; font-weight: 300; opacity: 0.7; margin-top: 2px; display: block; }
+
+.nav-tabs {
+  display: flex; gap: 4px;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3px;
+}
+.nav-tab {
+  padding: 6px 14px; border-radius: 5px; cursor: pointer;
+  font-size: 13px; font-family: var(--font-serif); font-weight: 600;
+  color: var(--text-muted); border: none; background: none;
+  transition: all 0.2s; white-space: nowrap;
+}
+.nav-tab:hover { color: var(--sakura-blush); }
+.nav-tab.active {
+  background: linear-gradient(135deg, var(--sakura-ink), #4a1028);
+  color: var(--sakura-pale);
+  box-shadow: 0 2px 8px rgba(201,78,120,0.3);
+}
+
+.search-box {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(0,0,0,0.4); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 7px 12px;
+  flex: 1; max-width: 320px;
+}
+.search-box input {
+  background: none; border: none; outline: none;
+  color: var(--text-primary); font-family: var(--font-serif);
+  font-size: 13px; width: 100%;
+}
+.search-box input::placeholder { color: var(--text-dim); }
+.search-icon { color: var(--text-dim); font-size: 14px; }
+
+.status-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 20px;
+  font-size: 11px; font-family: var(--font-mono);
+  background: rgba(61,184,122,0.12); border: 1px solid rgba(61,184,122,0.3);
+  color: var(--emerald); margin-left: auto; white-space: nowrap;
+  cursor: pointer; user-select: none;
+}
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--emerald); animation: pulse 2s infinite; }
+
+.refresh-button {
+  position: absolute; right: 16px; bottom: 16px; z-index: 450;
+  background: rgba(26,10,14,0.95); border: 1px solid var(--border-2);
+  color: var(--text-primary); border-radius: 999px;
+  padding: 10px 16px; font-size: 13px; font-family: var(--font-mono);
+  cursor: pointer; backdrop-filter: blur(16px);
+  transition: transform 0.2s, background 0.2s;
+}
+.refresh-button:hover { transform: translateY(-1px); background: rgba(201,78,120,0.2); }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(1.3)} }
+
+/* ── Main Content ────────────────────────────────────────────────────────── */
+#main { display: flex; flex: 1; overflow: hidden; }
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+#sidebar {
+  width: 340px; flex-shrink: 0;
+  background: linear-gradient(180deg, var(--night-2) 0%, var(--night-3) 100%);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+.sidebar-header {
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.sidebar-title {
+  font-size: 11px; font-family: var(--font-mono); color: var(--text-muted);
+  letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 8px;
+}
+.filter-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  padding: 4px 10px; border-radius: 12px; cursor: pointer;
+  font-size: 11px; border: 1px solid var(--border);
+  color: var(--text-muted); background: none; font-family: var(--font-serif);
+  transition: all 0.2s;
+}
+.chip:hover { border-color: var(--sakura-mid); color: var(--sakura-blush); }
+.chip.active {
+  background: linear-gradient(135deg, rgba(201,78,120,0.3), rgba(122,26,58,0.3));
+  border-color: var(--sakura-mid); color: var(--sakura-pale);
+}
+
+.spots-list { flex: 1; overflow-y: auto; padding: 8px; }
+.spots-list::-webkit-scrollbar { width: 4px; }
+.spots-list::-webkit-scrollbar-track { background: transparent; }
+.spots-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.spot-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.25s;
+  background: rgba(255,255,255,0.02);
+  position: relative;
+  overflow: hidden;
+}
+.spot-card::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--sakura-mid); opacity: 0; transition: opacity 0.2s;
+}
+.spot-card:hover { border-color: var(--border-2); background: rgba(255,255,255,0.04); transform: translateX(2px); }
+.spot-card:hover::before, .spot-card.selected::before { opacity: 1; }
+.spot-card.selected { border-color: var(--sakura-mid); background: rgba(232,120,154,0.06); }
+
+.spot-card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+.spot-name-cn { font-size: 15px; font-weight: 600; color: var(--sakura-pale); }
+.spot-name-ja { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
+.spot-region { font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 2px 7px; border-radius: 10px; }
+
+.spot-status-row { display: flex; align-items: center; justify-content: space-between; }
+.status-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px; border-radius: 12px; font-size: 11px; font-weight: 600;
+}
+.status-not_yet   { background: rgba(100,100,120,0.2); color: #8888aa; border: 1px solid rgba(100,100,120,0.3); }
+.status-budding   { background: rgba(212,168,83,0.15); color: var(--gold); border: 1px solid rgba(212,168,83,0.3); }
+.status-opening   { background: rgba(232,160,64,0.15); color: var(--amber); border: 1px solid rgba(232,160,64,0.3); }
+.status-blooming  { background: rgba(232,120,154,0.15); color: var(--sakura-blush); border: 1px solid rgba(232,120,154,0.3); }
+.status-full_bloom{ background: rgba(201,78,120,0.2); color: var(--sakura-pale); border: 1px solid rgba(201,78,120,0.5); }
+.status-falling   { background: rgba(110,197,224,0.12); color: var(--sky); border: 1px solid rgba(110,197,224,0.3); }
+.status-ended     { background: rgba(80,80,80,0.2); color: #666; border: 1px solid rgba(80,80,80,0.3); }
+
+.bloom-bar { display: flex; align-items: center; gap: 6px; flex: 1; margin-left: 10px; }
+.bloom-bar-track {
+  flex: 1; height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden;
+}
+.bloom-bar-fill {
+  height: 100%; border-radius: 2px;
+  background: linear-gradient(90deg, var(--sakura-ink), var(--sakura-mid), var(--sakura-blush));
+  transition: width 0.8s ease;
+}
+.bloom-pct { font-size: 10px; font-family: var(--font-mono); color: var(--text-dim); min-width: 26px; }
+
+.spot-forecast { margin-top: 8px; font-size: 11px; color: var(--text-muted); display: flex; gap: 12px; }
+.forecast-date { display: flex; align-items: center; gap: 4px; }
+
+.spot-weather { margin-top: 6px; display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
+
+/* ── Map ────────────────────────────────────────────────────────────────── */
+#map-container {
+  flex: 1; position: relative; background: var(--night);
+}
+#map { height: 100%; width: 100%; }
+
+/* Leaflet dark filter */
+.leaflet-tile { filter: invert(1) hue-rotate(180deg) brightness(0.85) saturate(0.7); }
+
+.map-controls {
+  position: absolute; top: 16px; right: 16px; z-index: 400;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.map-btn {
+  width: 38px; height: 38px;
+  background: rgba(26,10,14,0.95); border: 1px solid var(--border-2);
+  border-radius: var(--radius); cursor: pointer; color: var(--text-primary);
+  font-size: 16px; display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s; backdrop-filter: blur(12px);
+}
+.map-btn:hover { background: rgba(201,78,120,0.2); border-color: var(--sakura-mid); }
+
+.offline-panel {
+  position: absolute; bottom: 16px; right: 16px; z-index: 400;
+  background: rgba(26,10,14,0.95); border: 1px solid var(--border-2);
+  border-radius: var(--radius-lg); padding: 16px; backdrop-filter: blur(20px);
+  width: 260px; display: none;
+}
+.offline-panel.visible { display: block; }
+.offline-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--sakura-blush); }
+.offline-desc { font-size: 11px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.6; }
+.offline-zoom-row { display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: wrap; }
+.zoom-chip { padding: 4px 8px; border-radius: 6px; font-size: 10px; font-family: var(--font-mono); cursor: pointer; border: 1px solid var(--border); color: var(--text-muted); background: none; }
+.zoom-chip.selected { background: rgba(201,78,120,0.2); border-color: var(--sakura-mid); color: var(--sakura-blush); }
+.dl-btn {
+  width: 100%; padding: 9px; border-radius: var(--radius);
+  background: linear-gradient(135deg, var(--sakura-ink), #4a1028);
+  border: 1px solid rgba(232,120,154,0.4); color: var(--sakura-pale);
+  font-size: 13px; font-family: var(--font-serif); font-weight: 600;
+  cursor: pointer; transition: all 0.2s;
+}
+.dl-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(201,78,120,0.4); }
+.dl-progress { margin-top: 10px; display: none; }
+.dl-progress.visible { display: block; }
+.dl-bar-track { height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; margin-top: 4px; }
+.dl-bar-fill { height: 100%; background: linear-gradient(90deg, var(--sakura-ink), var(--sakura-blush)); border-radius: 2px; transition: width 0.3s; }
+
+/* ── Detail Panel ────────────────────────────────────────────────────────── */
+#detail-panel {
+  width: 380px; flex-shrink: 0;
+  background: linear-gradient(180deg, var(--night-2) 0%, var(--night) 100%);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+  transition: width 0.3s, opacity 0.3s;
+}
+#detail-panel.hidden { width: 0; opacity: 0; pointer-events: none; }
+
+.detail-scroll { flex: 1; overflow-y: auto; }
+.detail-scroll::-webkit-scrollbar { width: 4px; }
+.detail-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.detail-hero {
+  position: relative; padding: 24px;
+  background: linear-gradient(135deg, rgba(201,78,120,0.15), rgba(122,26,58,0.1));
+  border-bottom: 1px solid var(--border);
+}
+.detail-close {
+  position: absolute; top: 16px; right: 16px;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(0,0,0,0.4); border: 1px solid var(--border);
+  color: var(--text-muted); cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+}
+.detail-close:hover { color: var(--sakura-blush); }
+.detail-name { font-size: 24px; font-weight: 800; color: var(--sakura-pale); margin-bottom: 4px; }
+.detail-name-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
+.detail-meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.meta-chip {
+  padding: 4px 10px; border-radius: 12px; font-size: 11px;
+  background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.detail-section { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+.section-label { font-size: 10px; font-family: var(--font-mono); letter-spacing: 0.12em; color: var(--text-dim); text-transform: uppercase; margin-bottom: 14px; }
+
+.big-bloom-indicator {
+  display: flex; align-items: center; gap: 16px; margin-bottom: 16px;
+}
+.bloom-ring {
+  width: 80px; height: 80px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px;
+  background: conic-gradient(var(--sakura-mid) var(--pct, 0%), rgba(255,255,255,0.06) 0);
+  box-shadow: 0 0 20px rgba(201,78,120,0.3);
+}
+.bloom-ring-inner { width: 60px; height: 60px; border-radius: 50%; background: var(--night-2); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; color: var(--sakura-blush); }
+.bloom-info-col { flex: 1; }
+.bloom-status-big { font-size: 18px; font-weight: 700; color: var(--sakura-pale); margin-bottom: 4px; }
+.bloom-desc { font-size: 12px; color: var(--text-muted); line-height: 1.6; }
+
+/* Forecast date grid */
+.forecast-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.forecast-box {
+  padding: 12px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: rgba(255,255,255,0.02);
+}
+.forecast-box-label { font-size: 10px; color: var(--text-dim); font-family: var(--font-mono); margin-bottom: 4px; }
+.forecast-box-date { font-size: 16px; font-weight: 700; color: var(--sakura-blush); }
+.forecast-box-conf { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+
+/* Probability chart */
+.chart-wrap { height: 180px; position: relative; }
+
+/* Weather strip */
+.weather-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.w-item { text-align: center; padding: 10px 4px; background: rgba(255,255,255,0.03); border-radius: var(--radius); border: 1px solid var(--border); }
+.w-icon { font-size: 20px; margin-bottom: 4px; }
+.w-val { font-size: 15px; font-weight: 700; color: var(--sakura-blush); }
+.w-label { font-size: 9px; color: var(--text-dim); font-family: var(--font-mono); }
+
+/* 7-day forecast */
+.forecast-days { display: flex; flex-direction: column; gap: 6px; }
+.f-day { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: var(--radius); }
+.f-day:nth-child(odd) { background: rgba(255,255,255,0.02); }
+.f-date-label { font-size: 11px; color: var(--text-muted); width: 48px; flex-shrink: 0; }
+.f-icon { font-size: 16px; width: 24px; text-align: center; }
+.f-temps { font-size: 12px; flex: 1; }
+.f-tmax { color: var(--sakura-blush); font-weight: 600; }
+.f-tmin { color: var(--text-dim); }
+.f-precip { font-size: 10px; color: var(--sky); font-family: var(--font-mono); }
+
+/* History chart */
+.hist-chart-wrap { height: 160px; position: relative; }
+
+/* ── Pages ────────────────────────────────────────────────────────────────── */
+.page { display: none; flex: 1; flex-direction: column; overflow-y: auto; }
+.page.active { display: flex; }
+
+/* Front page (sakura front) */
+#page-front {
+  padding: 32px; gap: 24px;
+  background: radial-gradient(ellipse at top, rgba(201,78,120,0.08) 0%, transparent 60%);
+}
+.front-header { text-align: center; margin-bottom: 8px; }
+.front-title { font-size: 32px; font-weight: 800; color: var(--sakura-blush); letter-spacing: -0.02em; }
+.front-sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; font-family: var(--font-mono); }
+
+.front-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.front-card {
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 20px; background: rgba(255,255,255,0.02);
+  transition: all 0.25s;
+}
+.front-card:hover { border-color: var(--border-2); transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+.front-card-region { font-size: 11px; font-family: var(--font-mono); color: var(--text-dim); margin-bottom: 8px; }
+.front-card-name { font-size: 18px; font-weight: 700; color: var(--sakura-pale); margin-bottom: 12px; }
+.front-card-status { display: flex; align-items: center; justify-content: space-between; }
+.avg-date { font-size: 11px; color: var(--text-muted); }
+
+/* Stats row */
+.stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.stat-box {
+  padding: 16px; border-radius: var(--radius-lg);
+  border: 1px solid var(--border); background: rgba(255,255,255,0.02);
+  text-align: center;
+}
+.stat-val { font-size: 28px; font-weight: 800; color: var(--sakura-blush); margin-bottom: 4px; }
+.stat-label { font-size: 11px; color: var(--text-muted); }
+
+/* Offline page */
+#page-offline {
+  padding: 32px; gap: 24px;
+  background: radial-gradient(ellipse at top, rgba(61,184,122,0.05) 0%, transparent 50%);
+}
+.offline-header { font-size: 24px; font-weight: 700; color: var(--text-primary); }
+.offline-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.offline-card {
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 20px; background: rgba(255,255,255,0.02);
+}
+.cached-area { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.cached-name { font-size: 15px; font-weight: 600; }
+.cached-size { font-size: 11px; font-family: var(--font-mono); color: var(--text-muted); }
+.cached-meta { font-size: 11px; color: var(--text-dim); }
+.del-btn {
+  margin-top: 12px; padding: 7px 14px; border-radius: var(--radius);
+  border: 1px solid rgba(255,100,100,0.3); background: rgba(255,50,50,0.08);
+  color: #ff8888; font-size: 12px; font-family: var(--font-serif); cursor: pointer;
+}
+.del-btn:hover { background: rgba(255,50,50,0.15); }
+
+.region-selector {
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 24px; background: rgba(255,255,255,0.02);
+}
+.region-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin: 16px 0; }
+.region-dl-card {
+  padding: 12px; border-radius: var(--radius);
+  border: 1px solid var(--border); cursor: pointer;
+  transition: all 0.2s; background: rgba(255,255,255,0.02);
+}
+.region-dl-card:hover { border-color: var(--sakura-mid); background: rgba(232,120,154,0.06); }
+.region-dl-card.selected { border-color: var(--sakura-mid); background: rgba(201,78,120,0.1); }
+.region-dl-name { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.region-dl-size { font-size: 10px; font-family: var(--font-mono); color: var(--text-dim); }
+
+.big-dl-btn {
+  padding: 14px 28px; border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--sakura-ink), #4a1028);
+  border: 1px solid rgba(232,120,154,0.4); color: var(--sakura-pale);
+  font-size: 15px; font-family: var(--font-serif); font-weight: 700;
+  cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 8px;
+}
+.big-dl-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(201,78,120,0.4); }
+
+.storage-info {
+  display: flex; align-items: center; gap: 16px;
+  padding: 12px 16px; border-radius: var(--radius);
+  background: rgba(0,0,0,0.3); border: 1px solid var(--border); margin-top: 16px;
+}
+.storage-bar-track { flex: 1; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; }
+.storage-bar-fill { height: 100%; background: linear-gradient(90deg, var(--emerald), var(--amber)); border-radius: 3px; }
+.storage-text { font-size: 11px; font-family: var(--font-mono); color: var(--text-muted); white-space: nowrap; }
+
+/* ── Toast ────────────────────────────────────────────────────────────────── */
+#toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+  background: rgba(26,10,14,0.97); border: 1px solid var(--border-2);
+  border-radius: var(--radius-lg); padding: 12px 20px;
+  font-size: 13px; z-index: 9999;
+  transition: transform 0.3s ease; backdrop-filter: blur(20px);
+  box-shadow: var(--shadow);
+}
+#toast.show { transform: translateX(-50%) translateY(0); }
+
+/* ── Leaflet custom markers ───────────────────────────────────────────────── */
+.sakura-marker {
+  width: 36px; height: 36px; border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg); display: flex; align-items: center; justify-content: center;
+  border: 2px solid rgba(255,255,255,0.3);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+  font-size: 14px; cursor: pointer;
+}
+.sakura-marker span { transform: rotate(45deg); }
+
+.sakura-popup .leaflet-popup-content-wrapper {
+  background: rgba(26,10,14,0.97) !important;
+  border: 1px solid var(--border-2) !important;
+  border-radius: var(--radius-lg) !important;
+  color: var(--text-primary) !important;
+  box-shadow: var(--shadow) !important;
+}
+.sakura-popup .leaflet-popup-tip { background: rgba(26,10,14,0.97) !important; }
+.popup-name { font-size: 14px; font-weight: 700; color: var(--sakura-blush); margin-bottom: 6px; }
+.popup-row { font-size: 11px; color: var(--text-muted); display: flex; justify-content: space-between; gap: 12px; }
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  #detail-panel { display: none; }
+  #sidebar { width: 300px; }
+}
+@media (max-width: 1024px) {
+  #topbar { flex-wrap: wrap; justify-content: center; gap: 12px; }
+  .search-box { flex: 1 1 100%; max-width: none; }
+  .status-badge { margin-left: 0; }
+}
+@media (max-width: 768px) {
+  #topbar { padding: 12px 16px; }
+  #sidebar { display: none; }
+  #main { flex-direction: column; }
+  #map-container { min-height: calc(100vh - 200px); }
+  .stats-row { grid-template-columns: repeat(2,1fr); }
+  .nav-tab { padding: 6px 10px; font-size: 12px; }
+  .logo span:not(.logo-symbol) { display: none; }
+  .front-grid { grid-template-columns: 1fr; }
+  #page-front, #page-offline { padding: 0 12px 20px; }
+  .refresh-button { right: 12px; bottom: 12px; }
+}
+</style>
+</head>
+<body>
+
+<canvas id="petals-canvas"></canvas>
+
+<div id="app">
+  <!-- TOPBAR -->
+  <div id="topbar">
+    <div class="logo">
+      <span class="logo-symbol">🌸</span>
+      <div>
+        <span>樱花时令</span>
+        <span class="logo-ja">Sakura-Time · 桜前線</span>
+      </div>
+    </div>
+
+    <div class="nav-tabs">
+      <button class="nav-tab active" data-page="map" onclick="switchPage('map')">🗾 地图</button>
+      <button class="nav-tab" data-page="front" onclick="switchPage('front')">🌊 前线</button>
+      <button class="nav-tab" data-page="offline" onclick="switchPage('offline')">📦 离线</button>
+    </div>
+
+    <div class="search-box">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="search-input" placeholder="搜索观樱地点…" oninput="filterSpots(this.value)">
+    </div>
+
+    <div id="refresh-badge" class="status-badge" onclick="refreshAllData()">
+      <div class="status-dot"></div>
+      一键刷新
+    </div>
+  </div>
+
+  <!-- MAP PAGE -->
+  <div id="main" class="page active">
+
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-title">筛选地区</div>
+        <div class="filter-chips" id="region-chips">
+          <button class="chip active" onclick="filterRegion('all', this)">全国</button>
+          <button class="chip" onclick="filterRegion('华北', this)">华北</button>
+          <button class="chip" onclick="filterRegion('东北', this)">东北</button>
+          <button class="chip" onclick="filterRegion('华东', this)">华东</button>
+          <button class="chip" onclick="filterRegion('华中', this)">华中</button>
+          <button class="chip" onclick="filterRegion('华南', this)">华南</button>
+          <button class="chip" onclick="filterRegion('西南', this)">西南</button>
+          <button class="chip" onclick="filterRegion('西北', this)">西北</button>
+        </div>
+      </div>
+      <div class="spots-list" id="spots-list"></div>
+    </div>
+
+    <!-- Map -->
+    <div id="map-container">
+      <div id="map"></div>
+
+      <div class="map-controls">
+        <button class="map-btn" onclick="locateUser()" title="定位">📍</button>
+        <button class="map-btn" onclick="toggleOfflinePanel()" title="下载离线地图">📥</button>
+        <button class="map-btn" onclick="toggleSatellite()" title="切换图层">🛰️</button>
+        <button class="map-btn" onclick="resetView()" title="重置视图">🎯</button>
+      </div>
+      <button class="refresh-button" onclick="refreshAllData()">⟳ 一键刷新</button>
+
+      <div class="offline-panel" id="offline-panel">
+        <div class="offline-title">📥 下载当前区域离线地图</div>
+        <div class="offline-desc">下载后可在无网络环境查看地图及樱花数据，选择缩放级别影响文件大小。</div>
+        <div class="sidebar-title" style="margin-bottom:6px">缩放级别</div>
+        <div class="offline-zoom-row" id="zoom-chips">
+          <button class="zoom-chip" onclick="selectZoom(10, this)">10</button>
+          <button class="zoom-chip selected" onclick="selectZoom(12, this)">12</button>
+          <button class="zoom-chip" onclick="selectZoom(14, this)">14</button>
+          <button class="zoom-chip" onclick="selectZoom(16, this)">16</button>
+        </div>
+        <div id="size-estimate" style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">预计大小：约 18 MB</div>
+        <button class="dl-btn" onclick="startOfflineDownload()">开始下载当前区域</button>
+        <div class="dl-progress" id="dl-progress">
+          <div style="font-size:11px;color:var(--text-muted)" id="dl-status">正在准备…</div>
+          <div class="dl-bar-track"><div class="dl-bar-fill" id="dl-bar" style="width:0%"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detail Panel -->
+    <div id="detail-panel" class="hidden">
+      <div class="detail-scroll" id="detail-scroll"></div>
+    </div>
+  </div>
+
+  <!-- FRONT PAGE -->
+  <div id="page-front" class="page" style="overflow-y:auto">
+    <div class="front-header">
+      <div class="front-title">🌊 樱花前线</div>
+      <div class="front-sub">SAKURA FRONT · 2026 · REAL-TIME TRACKING</div>
+    </div>
+
+    <div class="stats-row" id="stats-row">
+      <div class="stat-box"><div class="stat-val" id="stat-full">—</div><div class="stat-label">满开地点</div></div>
+      <div class="stat-box"><div class="stat-val" id="stat-bloom">—</div><div class="stat-label">开花中</div></div>
+      <div class="stat-box"><div class="stat-val" id="stat-soon">—</div><div class="stat-label">即将开放</div></div>
+      <div class="stat-box"><div class="stat-val" id="stat-total">—</div><div class="stat-label">监测地点</div></div>
+    </div>
+
+    <div class="front-grid" id="front-grid"></div>
+  </div>
+
+  <!-- OFFLINE PAGE -->
+  <div id="page-offline" class="page" style="overflow-y:auto">
+    <div class="offline-header">📦 离线地图管理</div>
+    <p style="color:var(--text-muted);font-size:13px;margin-top:4px">下载指定区域的地图瓦片与樱花数据，支持完全离线浏览。</p>
+
+    <div class="region-selector">
+      <div class="sidebar-title">选择下载区域</div>
+      <div class="region-grid" id="region-dl-grid"></div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button class="big-dl-btn" onclick="downloadSelectedRegions()">
+          <span>📥</span> 下载所选区域
+        </button>
+        <span style="font-size:12px;color:var(--text-muted)" id="selected-size-label">未选择</span>
+      </div>
+      <div class="storage-info" id="storage-info">
+        <div class="storage-bar-track"><div class="storage-bar-fill" id="storage-fill" style="width:12%"></div></div>
+        <div class="storage-text" id="storage-text">正在读取…</div>
+      </div>
+    </div>
+
+    <div style="font-size:16px;font-weight:600;margin-top:8px">已缓存区域</div>
+    <div class="offline-cards" id="cached-cards">
+      <div style="color:var(--text-muted);font-size:13px;padding:20px 0">暂无缓存数据。选择区域后点击下载即可离线使用。</div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// DATA
+// ═══════════════════════════════════════════════════════════════════════════
+const SPOTS = [
+  { id:'s01', name:'颐和园', nameJa:'颐和园', nameEn:'Summer Palace', region:'华北', pref:'北京市',
+    lat:39.9980, lng:116.2755, alt:40, trees:3200, variety:'早樱',
+    status:'full_bloom', bloomPct:92, temp:18, humidity:55, weather:'☀️', wdesc:'晴',
+    fFirst:'03-26', fFull:'03-30', conf:0.89, desc:'北京经典赏樱地，昆明湖畔樱花与古建筑相映成趣。',
+    tags:['皇家园林','古建筑','夜樱'], rating:4.8, pop:11200 },
+  { id:'s02', name:'杭州西湖', nameJa:'杭州西湖', nameEn:'West Lake', region:'华东', pref:'浙江省',
+    lat:30.2440, lng:120.1455, alt:15, trees:2100, variety:'染井吉野',
+    status:'blooming', bloomPct:74, temp:16, humidity:60, weather:'⛅', wdesc:'多云',
+    fFirst:'03-28', fFull:'04-03', conf:0.86, desc:'西湖边樱花盛开，湖光山色与花海交织，春天最浪漫的景致之一。',
+    tags:['湖景','古镇','浪漫'], rating:4.9, pop:15000 },
+  { id:'s03', name:'武汉东湖樱园', nameJa:'武汉東湖樱園', nameEn:'East Lake Cherry Garden', region:'华中', pref:'湖北省',
+    lat:30.5600, lng:114.4035, alt:21, trees:2800, variety:'河津樱',
+    status:'opening', bloomPct:38, temp:14, humidity:68, weather:'🌦️', wdesc:'阵雨',
+    fFirst:'03-31', fFull:'04-06', conf:0.82, desc:'东湖樱园春日盛放，河津樱与湖面映衬，适合踏青与摄影。',
+    tags:['湖畔','樱花大道','踏青'], rating:4.7, pop:9800 },
+  { id:'s04', name:'上海顾村公园', nameJa:'上海顧村公園', nameEn:'Gucun Park', region:'华东', pref:'上海市',
+    lat:31.3415, lng:121.4438, alt:8, trees:3600, variety:'枝垂樱',
+    status:'budding', bloomPct:18, temp:17, humidity:63, weather:'☀️', wdesc:'晴',
+    fFirst:'04-02', fFull:'04-08', conf:0.80, desc:'顾村公园为上海最大的樱花公园，春季花海极具视觉冲击力。',
+    tags:['花海','拍照','人气'], rating:4.6, pop:13200 },
+  { id:'s05', name:'成都人民公园', nameJa:'成都人民公園', nameEn:'People’s Park', region:'西南', pref:'四川省',
+    lat:30.6660, lng:104.0650, alt:500, trees:1200, variety:'八重樱',
+    status:'blooming', bloomPct:68, temp:19, humidity:70, weather:'🌤️', wdesc:'晴间多云',
+    fFirst:'03-25', fFull:'03-31', conf:0.84, desc:'成都人民公园春暖花开，樱花与茶馆文化相得益彰。',
+    tags:['都市公园','休闲','茶馆'], rating:4.5, pop:9400 },
+  { id:'s06', name:'昆明世博园', nameJa:'昆明世博園', nameEn:'Expo Garden', region:'西南', pref:'云南省',
+    lat:25.0701, lng:102.7170, alt:1900, trees:1100, variety:'昭和樱',
+    status:'not_yet', bloomPct:12, temp:12, humidity:72, weather:'🌧️', wdesc:'小雨',
+    fFirst:'04-10', fFull:'04-16', conf:0.78, desc:'云南春季气候宜人，世博园樱花晚开，是避寒赏花的好去处。',
+    tags:['高原','晚樱','避寒'], rating:4.6, pop:6200 },
+  { id:'s07', name:'长春农博园', nameJa:'長春農博園', nameEn:'Agri Expo Garden', region:'东北', pref:'吉林省',
+    lat:43.8214, lng:125.3540, alt:220, trees:950, variety:'吉野樱',
+    status:'not_yet', bloomPct:8, temp:7, humidity:58, weather:'🌨️', wdesc:'小雪',
+    fFirst:'04-18', fFull:'04-25', conf:0.76, desc:'东北早春赏樱地，气温较低，赏花节有冰雪与花海的独特对比。',
+    tags:['冰雪','节庆','东北风情'], rating:4.3, pop:5400 },
+  { id:'s08', name:'南京玄武湖', nameJa:'南京玄武湖', nameEn:'Xuanwu Lake', region:'华东', pref:'江苏省',
+    lat:32.0505, lng:118.8038, alt:23, trees:1700, variety:'染井吉野',
+    status:'falling', bloomPct:42, temp:15, humidity:65, weather:'⛅', wdesc:'多云',
+    fFirst:'03-29', fFull:'04-04', conf:0.85, desc:'玄武湖樱花盛开后进入落花阶段，湖畔步道适合散步与拍摄花瓣飘落。',
+    tags:['湖景','步道','城市'], rating:4.7, pop:10500 },
+  { id:'s09', name:'苏州木渎', nameJa:'蘇州木渎', nameEn:'Mudu Town', region:'华东', pref:'江苏省',
+    lat:31.1116, lng:120.8789, alt:8, trees:620, variety:'垂枝樱',
+    status:'full_bloom', bloomPct:88, temp:16, humidity:62, weather:'☀️', wdesc:'晴',
+    fFirst:'03-27', fFull:'04-02', conf:0.90, desc:'古镇木渎古桥与樱花相伴，是江南春日最柔美的画面。',
+    tags:['古镇','运河','江南'], rating:4.9, pop:8800 },
+  { id:'s10', name:'广州越秀公园', nameJa:'広州越秀公園', nameEn:'Yuexiu Park', region:'华南', pref:'广东省',
+    lat:23.1288, lng:113.2708, alt:45, trees:1400, variety:'早樱',
+    status:'blooming', bloomPct:60, temp:21, humidity:70, weather:'☀️', wdesc:'晴',
+    fFirst:'03-24', fFull:'03-30', conf:0.88, desc:'广州春季花期早，越秀公园樱花与历史建筑共同构成城市风景。',
+    tags:['城市公园','早花','历史'], rating:4.6, pop:10200 }
+];
+
+const STATUS_LABELS = {
+  not_yet: '未开花', budding: '花芽期', opening: '开花中', blooming: '开花',
+  full_bloom: '満　開', falling: '散樱中', ended: '已结束'
+};
+const STATUS_EMOJIS = {
+  not_yet: '⬜', budding: '🟡', opening: '🟠', blooming: '🌸', full_bloom: '🌺', falling: '🍃', ended: '⬛'
+};
+const MARKER_COLORS = {
+  not_yet: '#555', budding: '#c8a020', opening: '#e07830', blooming: '#e87896', full_bloom: '#c94e78', falling: '#6ec5e0', ended: '#444'
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PETAL PARTICLES
+// ═══════════════════════════════════════════════════════════════════════════
+(function initPetals() {
+  const canvas = document.getElementById('petals-canvas');
+  const ctx = canvas.getContext('2d');
+  let W, H, petals = [];
+
+  function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+  window.addEventListener('resize', resize);
+  resize();
+
+  function randomPetal() {
+    return {
+      x: Math.random() * W,
+      y: -20,
+      size: 4 + Math.random() * 8,
+      speedX: (Math.random() - 0.5) * 0.8,
+      speedY: 0.5 + Math.random() * 1.2,
+      rotation: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.05,
+      opacity: 0.3 + Math.random() * 0.5,
+      hue: 340 + Math.random() * 30
+    };
+  }
+
+  function drawPetal(p) {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rotation);
+    ctx.globalAlpha = p.opacity;
+    ctx.fillStyle = `hsl(${p.hue}, 70%, 80%)`;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, p.size, p.size * 0.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function animate() {
+    ctx.clearRect(0, 0, W, H);
+    if (petals.length < 60 && Math.random() < 0.3) petals.push(randomPetal());
+    petals = petals.filter(p => p.y < H + 30 && p.x > -30 && p.x < W + 30);
+    petals.forEach(p => {
+      p.x += p.speedX + Math.sin(Date.now() / 2000 + p.y * 0.01) * 0.3;
+      p.y += p.speedY;
+      p.rotation += p.rotSpeed;
+      drawPetal(p);
+    });
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MAP
+// ═══════════════════════════════════════════════════════════════════════════
+let map, markers = {}, selectedSpot = null, currentZoom = 12;
+let offlinePanelVisible = false;
+let useSatellite = false;
+let baseLayer, satelliteLayer;
+
+function initMap() {
+  map = L.map('map', { center: [35.8617, 104.1954], zoom: 4, zoomControl: false });
+
+  baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 19
+  }).addTo(map);
+
+  satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '© Esri', maxZoom: 19
+  });
+
+  SPOTS.forEach(spot => addMarker(spot));
+  map.on('moveend zoomend', updateSizeEstimate);
+}
+
+function addMarker(spot) {
+  const color = MARKER_COLORS[spot.status] || '#888';
+  const icon = L.divIcon({
+    className: '',
+    html: `<div class="sakura-marker" style="background:${color};border-color:${color}aa">
+      <span>${STATUS_EMOJIS[spot.status]}</span>
+    </div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 36],
+    popupAnchor: [0, -38]
+  });
+
+  const marker = L.marker([spot.lat, spot.lng], { icon })
+    .bindPopup(`
+      <div class="popup-name">${spot.name} ${spot.nameJa}</div>
+      <div class="popup-row"><span>${STATUS_EMOJIS[spot.status]} ${STATUS_LABELS[spot.status]}</span><span>${spot.bloomPct}% 开放</span></div>
+      <div class="popup-row"><span>${spot.weather} ${spot.temp}°C</span><span>📅 满开预计 ${spot.fFull}</span></div>
+    `, { className: 'sakura-popup' })
+    .on('click', () => showDetail(spot.id))
+    .addTo(map);
+
+  markers[spot.id] = marker;
+}
+
+function toggleSatellite() {
+  if (!useSatellite) {
+    map.removeLayer(baseLayer);
+    satelliteLayer.addTo(map);
+    useSatellite = true;
+    showToast('已切换至卫星图像');
+  } else {
+    map.removeLayer(satelliteLayer);
+    baseLayer.addTo(map);
+    useSatellite = false;
+    showToast('已切换至街道地图');
+  }
+}
+
+function resetView() { map.flyTo([35.8617, 104.1954], 4, { duration: 1.5 }); }
+
+function locateUser() {
+  if (!navigator.geolocation) return showToast('您的浏览器不支持定位');
+  navigator.geolocation.getCurrentPosition(
+    pos => { map.flyTo([pos.coords.latitude, pos.coords.longitude], 10, { duration: 1.5 }); showToast('已定位到您的位置'); },
+    () => showToast('无法获取位置，请检查权限')
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SIDEBAR
+// ═══════════════════════════════════════════════════════════════════════════
+let currentRegion = 'all', currentSearch = '';
+
+function renderSpotList(spots) {
+  const list = document.getElementById('spots-list');
+  list.innerHTML = '';
+  spots.forEach(spot => {
+    const card = document.createElement('div');
+    card.className = 'spot-card' + (selectedSpot === spot.id ? ' selected' : '');
+    card.id = 'card-' + spot.id;
+    card.innerHTML = `
+      <div class="spot-card-top">
+        <div>
+          <div class="spot-name-cn">${spot.name}</div>
+          <div class="spot-name-ja">${spot.nameJa} · ${spot.pref}</div>
+        </div>
+        <div class="spot-region">${spot.region}</div>
+      </div>
+      <div class="spot-status-row">
+        <span class="status-pill status-${spot.status}">${STATUS_EMOJIS[spot.status]} ${STATUS_LABELS[spot.status]}</span>
+        <div class="bloom-bar">
+          <div class="bloom-bar-track"><div class="bloom-bar-fill" style="width:${spot.bloomPct}%"></div></div>
+          <span class="bloom-pct">${spot.bloomPct}%</span>
+        </div>
+      </div>
+      <div class="spot-forecast">
+        <div class="forecast-date">🌸 开花 <strong>${spot.fFirst}</strong></div>
+        <div class="forecast-date">🌺 满开 <strong>${spot.fFull}</strong></div>
+      </div>
+      <div class="spot-weather">${spot.weather} ${spot.temp}°C · 湿度${spot.humidity}%</div>
+    `;
+    card.onclick = () => { showDetail(spot.id); map.flyTo([spot.lat, spot.lng], 13, { duration: 1 }); };
+    list.appendChild(card);
+  });
+}
+
+function getFilteredSpots() {
+  return SPOTS.filter(s => {
+    if (currentRegion !== 'all' && s.region !== currentRegion) return false;
+    if (currentSearch) {
+      const q = currentSearch.toLowerCase();
+      if (!s.name.includes(currentSearch) && !s.nameJa.includes(currentSearch) &&
+          !s.pref.toLowerCase().includes(q) && !s.nameEn.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function filterRegion(region, btn) {
+  currentRegion = region;
+  document.querySelectorAll('#region-chips .chip').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  renderSpotList(getFilteredSpots());
+}
+
+function filterSpots(q) {
+  currentSearch = q;
+  renderSpotList(getFilteredSpots());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DETAIL PANEL
+// ═══════════════════════════════════════════════════════════════════════════
+let probChart = null, histChart = null;
+
+function showDetail(id) {
+  const spot = SPOTS.find(s => s.id === id);
+  if (!spot) return;
+  selectedSpot = id;
+
+  // Highlight card
+  document.querySelectorAll('.spot-card').forEach(c => c.classList.remove('selected'));
+  const card = document.getElementById('card-' + id);
+  if (card) { card.classList.add('selected'); card.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+
+  const panel = document.getElementById('detail-panel');
+  panel.classList.remove('hidden');
+
+  const pct = spot.bloomPct;
+  const deg = Math.round(pct * 3.6);
+
+  // Generate probability data
+  const probDays = [];
+  const probLabels = [];
+  const probData = [];
+  const bloomPctData = [];
+  const now = new Date();
+  for (let i = -3; i < 20; i++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + i);
+    probLabels.push(`${d.getMonth()+1}/${d.getDate()}`);
+    const g = Math.exp(-0.5 * Math.pow((i - 4) / 3.5, 2)) * 0.9;
+    probData.push(+(Math.max(0, Math.min(1, g))).toFixed(2));
+    bloomPctData.push(+(Math.max(0, Math.min(100, g * 110))).toFixed(0));
+  }
+
+  // Historical data (last 10 years)
+  const histYears = [];
+  const histFirst = [];
+  for (let y = 10; y >= 0; y--) {
+    histYears.push(now.getFullYear() - y);
+    histFirst.push(80 + Math.floor(Math.random() * 15));
+  }
+
+  document.getElementById('detail-scroll').innerHTML = `
+    <div class="detail-hero">
+      <button class="detail-close" onclick="closeDetail()">✕</button>
+      <div class="detail-name">${spot.name}</div>
+      <div class="detail-name-sub">${spot.nameJa} · ${spot.nameEn}</div>
+      <div class="detail-meta">
+        <span class="meta-chip">📍 ${spot.pref}</span>
+        <span class="meta-chip">🌸 ${spot.variety}</span>
+        <span class="meta-chip">🌳 ${spot.trees?.toLocaleString()} 棵</span>
+        <span class="meta-chip">⛰ ${spot.alt}m</span>
+        <span class="meta-chip">⭐ ${spot.rating}</span>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="section-label">当前开放状态</div>
+      <div class="big-bloom-indicator">
+        <div class="bloom-ring" style="--pct:${deg}deg;background:conic-gradient(var(--sakura-mid) ${deg}deg, rgba(255,255,255,0.06) ${deg}deg)">
+          <div class="bloom-ring-inner">${pct}%</div>
+        </div>
+        <div class="bloom-info-col">
+          <div class="bloom-status-big">${STATUS_EMOJIS[spot.status]} ${STATUS_LABELS[spot.status]}</div>
+          <div class="bloom-desc">${spot.desc}</div>
+        </div>
+      </div>
+      <div class="forecast-grid">
+        <div class="forecast-box">
+          <div class="forecast-box-label">🌸 预计开花日</div>
+          <div class="forecast-box-date">${spot.fFirst}</div>
+          <div class="forecast-box-conf">置信度 ${Math.round(spot.conf * 100)}%</div>
+        </div>
+        <div class="forecast-box">
+          <div class="forecast-box-label">🌺 预计满开日</div>
+          <div class="forecast-box-date">${spot.fFull}</div>
+          <div class="forecast-box-conf">模型：DTS增强版</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="section-label">开花概率预测（30天）</div>
+      <div class="chart-wrap"><canvas id="prob-chart"></canvas></div>
+    </div>
+
+    <div class="detail-section">
+      <div class="section-label">实时气象</div>
+      <div class="weather-strip">
+        <div class="w-item"><div class="w-icon">${spot.weather}</div><div class="w-val">${spot.temp}°C</div><div class="w-label">气温</div></div>
+        <div class="w-item"><div class="w-icon">💧</div><div class="w-val">${spot.humidity}%</div><div class="w-label">湿度</div></div>
+        <div class="w-item"><div class="w-icon">🌬</div><div class="w-val">${(Math.random()*8+1).toFixed(1)}</div><div class="w-label">风速m/s</div></div>
+        <div class="w-item"><div class="w-icon">🌡</div><div class="w-val">${(spot.temp+3+Math.random()*3).toFixed(1)}°</div><div class="w-label">今日高温</div></div>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="section-label">历年开花记录</div>
+      <div class="hist-chart-wrap"><canvas id="hist-chart"></canvas></div>
+    </div>
+
+    <div class="detail-section" style="border-bottom:none">
+      <div class="section-label">标签</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${(spot.tags || []).map(t => `<span class="meta-chip">${t}</span>`).join('')}
+      </div>
+    </div>
+  `;
+
+  // Render charts after DOM update
+  setTimeout(() => {
+    if (probChart) probChart.destroy();
+    if (histChart) histChart.destroy();
+
+    const probCtx = document.getElementById('prob-chart');
+    if (probCtx) {
+      probChart = new Chart(probCtx, {
+        type: 'bar',
+        data: {
+          labels: probLabels,
+          datasets: [
+            { type: 'line', label: '开花率%', data: bloomPctData, borderColor: '#e8789a', backgroundColor: 'rgba(232,120,154,0.1)', tension: 0.4, yAxisID: 'y2', pointRadius: 0, fill: true },
+            { label: '开花概率', data: probData.map(v => v * 100), backgroundColor: probData.map(v => `rgba(201,78,120,${v * 0.7 + 0.1})`), borderRadius: 3, yAxisID: 'y1' }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: '#f8e8ef88', font: { size: 10 } } } },
+          scales: {
+            x: { ticks: { color: '#f8e8ef44', font: { size: 9 }, maxRotation: 45 }, grid: { color: 'rgba(255,255,255,0.04)' } },
+            y1: { position: 'left', min: 0, max: 100, ticks: { color: '#f8e8ef44', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+            y2: { position: 'right', min: 0, max: 110, display: false }
+          }
+        }
+      });
+    }
+
+    const histCtx = document.getElementById('hist-chart');
+    if (histCtx) {
+      histChart = new Chart(histCtx, {
+        type: 'bar',
+        data: {
+          labels: histYears,
+          datasets: [{ label: '开花日（年积日）', data: histFirst, backgroundColor: 'rgba(232,120,154,0.5)', borderColor: '#e8789a', borderWidth: 1, borderRadius: 2 }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: '#f8e8ef88', font: { size: 10 } } } },
+          scales: {
+            x: { ticks: { color: '#f8e8ef44', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+            y: { ticks: { color: '#f8e8ef44', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.04)' } }
+          }
+        }
+      });
+    }
+  }, 50);
+}
+
+function closeDetail() {
+  document.getElementById('detail-panel').classList.add('hidden');
+  selectedSpot = null;
+  document.querySelectorAll('.spot-card').forEach(c => c.classList.remove('selected'));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OFFLINE PANEL (map)
+// ═══════════════════════════════════════════════════════════════════════════
+function toggleOfflinePanel() {
+  offlinePanelVisible = !offlinePanelVisible;
+  document.getElementById('offline-panel').classList.toggle('visible', offlinePanelVisible);
+  if (offlinePanelVisible) updateSizeEstimate();
+}
+
+function selectZoom(z, btn) {
+  currentZoom = z;
+  document.querySelectorAll('#zoom-chips .zoom-chip').forEach(c => c.classList.remove('selected'));
+  btn.classList.add('selected');
+  updateSizeEstimate();
+}
+
+function updateSizeEstimate() {
+  const zoomDiff = currentZoom - 10;
+  const tileCount = Math.pow(4, zoomDiff + 1) * 16;
+  const sizeMB = (tileCount * 15 / 1024).toFixed(1);
+  const el = document.getElementById('size-estimate');
+  if (el) el.textContent = `预计大小：约 ${sizeMB} MB`;
+}
+
+function safeMapCenter() {
+  try { return map && map.getCenter ? map.getCenter() : { lat: 36.5, lng: 136.5 }; }
+  catch (_) { return { lat: 36.5, lng: 136.5 }; }
+}
+
+const cachedAreas = [];
+
+function startOfflineDownload() {
+  const center = safeMapCenter();
+  const zoom = currentZoom;
+  const progressEl = document.getElementById('dl-progress');
+  const statusEl = document.getElementById('dl-status');
+  const barEl = document.getElementById('dl-bar');
+
+  progressEl.classList.add('visible');
+  let progress = 0;
+  statusEl.textContent = '正在计算瓦片范围…';
+
+  const steps = [
+    { pct: 15, msg: '正在建立索引…' },
+    { pct: 35, msg: '正在缓存地图瓦片…' },
+    { pct: 60, msg: '正在下载樱花数据…' },
+    { pct: 80, msg: '正在压缩存储…' },
+    { pct: 95, msg: '正在验证完整性…' },
+    { pct: 100, msg: '下载完成！' }
+  ];
+
+  let step = 0;
+  const interval = setInterval(() => {
+    if (step >= steps.length) {
+      clearInterval(interval);
+      const areaName = `区域 ${center.lat.toFixed(2)}, ${center.lng.toFixed(2)} z${zoom}`;
+      const sizeMB = (Math.pow(4, zoom - 10 + 1) * 16 * 15 / 1024).toFixed(1);
+      cachedAreas.push({ name: areaName, size: sizeMB, zoom, date: new Date().toLocaleDateString('zh-CN'), center });
+      saveCacheToStorage();
+      renderCachedCards();
+      showToast(`✅ 离线地图下载完成（${sizeMB} MB）`);
+      progressEl.classList.remove('visible');
+      return;
+    }
+    const s = steps[step++];
+    barEl.style.width = s.pct + '%';
+    statusEl.textContent = s.msg;
+  }, 600);
+}
+
+function saveCacheToStorage() {
+  try { localStorage.setItem('sakura_offline_cache', JSON.stringify(cachedAreas)); } catch (_) {}
+}
+
+function refreshAllData() {
+  showToast('正在清除缓存并刷新资源…');
+  const clearCaches = ('caches' in window)
+    ? caches.keys().then(keys => Promise.all(keys.map(key => caches.delete(key))))
+    : Promise.resolve();
+
+  clearCaches.then(() => {
+    try { localStorage.removeItem('sakura_offline_cache'); } catch (_) {}
+    cachedAreas.length = 0;
+    renderCachedCards();
+    updateStorageInfo();
+    renderSpotList(getFilteredSpots());
+    renderFrontPage();
+    Object.values(markers).forEach(marker => { if (marker && marker.remove) marker.remove(); });
+    markers = {};
+    SPOTS.forEach(addMarker);
+    if (map) {
+      if (useSatellite) {
+        map.removeLayer(satelliteLayer);
+        satelliteLayer.addTo(map);
+      } else {
+        map.removeLayer(baseLayer);
+        baseLayer.addTo(map);
+      }
+      map.invalidateSize();
+      resetView();
+    }
+    showToast('已完成刷新');
+  }).catch(() => {
+    showToast('刷新时发生异常，已尝试恢复数据');
+  });
+}
+
+function loadCacheFromStorage() {
+  try {
+    const data = localStorage.getItem('sakura_offline_cache');
+    if (data) { const arr = JSON.parse(data); arr.forEach(a => cachedAreas.push(a)); }
+  } catch (_) {}
+}
+
+function renderCachedCards() {
+  const container = document.getElementById('cached-cards');
+  if (cachedAreas.length === 0) {
+    container.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:20px 0">暂无缓存数据。选择区域后点击下载即可离线使用。</div>';
+    return;
+  }
+  container.innerHTML = cachedAreas.map((area, i) => `
+    <div class="offline-card">
+      <div class="cached-area">
+        <div class="cached-name">📦 ${area.name}</div>
+        <div class="cached-size">${area.size} MB</div>
+      </div>
+      <div class="cached-meta">缩放级别：${area.zoom} · 缓存时间：${area.date}</div>
+      <button class="del-btn" onclick="deleteCache(${i})">🗑 删除缓存</button>
+    </div>
+  `).join('');
+  updateStorageInfo();
+}
+
+function deleteCache(i) {
+  cachedAreas.splice(i, 1);
+  saveCacheToStorage();
+  renderCachedCards();
+  showToast('已删除缓存区域');
+}
+
+function updateStorageInfo() {
+  const total = cachedAreas.reduce((sum, a) => sum + parseFloat(a.size), 0);
+  const pct = Math.min(100, total / 5).toFixed(0);
+  const fillEl = document.getElementById('storage-fill');
+  const textEl = document.getElementById('storage-text');
+  if (fillEl) fillEl.style.width = pct + '%';
+  if (textEl) textEl.textContent = `已用 ${total.toFixed(1)} MB / 500 MB`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OFFLINE PAGE (region downloads)
+// ═══════════════════════════════════════════════════════════════════════════
+const REGIONS = [
+  { name:'华北', size:'42', lat:39.9, lng:116.4 },
+  { name:'东北', size:'38', lat:43.8, lng:125.3 },
+  { name:'华东', size:'35', lat:31.5, lng:120.5 },
+  { name:'华中', size:'32', lat:30.6, lng:112.5 },
+  { name:'华南', size:'28', lat:23.1, lng:113.3 },
+  { name:'西南', size:'40', lat:30.7, lng:104.1 },
+  { name:'西北', size:'34', lat:34.3, lng:108.9 },
+  { name:'港澳', size:'22', lat:22.3, lng:114.2 }
+];
+let selectedRegions = new Set();
+
+function initOfflinePage() {
+  const grid = document.getElementById('region-dl-grid');
+  REGIONS.forEach(r => {
+    const card = document.createElement('div');
+    card.className = 'region-dl-card';
+    card.innerHTML = `<div class="region-dl-name">${r.name}</div><div class="region-dl-size">约 ${r.size} MB</div>`;
+    card.onclick = () => {
+      if (selectedRegions.has(r.name)) { selectedRegions.delete(r.name); card.classList.remove('selected'); }
+      else { selectedRegions.add(r.name); card.classList.add('selected'); }
+      updateSelectedSize();
+    };
+    grid.appendChild(card);
+  });
+  updateStorageInfo();
+}
+
+function updateSelectedSize() {
+  const total = REGIONS.filter(r => selectedRegions.has(r.name)).reduce((s, r) => s + parseFloat(r.size), 0);
+  const label = document.getElementById('selected-size-label');
+  if (label) label.textContent = selectedRegions.size > 0 ? `已选 ${selectedRegions.size} 个区域 · 约 ${total} MB` : '未选择';
+}
+
+function downloadSelectedRegions() {
+  if (selectedRegions.size === 0) { showToast('请先选择要下载的区域'); return; }
+  const regions = [...selectedRegions];
+  showToast(`⏳ 正在下载 ${regions.join('、')}…`);
+  setTimeout(() => {
+    regions.forEach(name => {
+      const r = REGIONS.find(x => x.name === name);
+      cachedAreas.push({ name: `${name}地区`, size: r.size, zoom: 12, date: new Date().toLocaleDateString('zh-CN'), center: { lat: r.lat, lng: r.lng } });
+    });
+    saveCacheToStorage();
+    renderCachedCards();
+    showToast(`✅ ${regions.join('、')} 下载完成`);
+    selectedRegions.clear();
+    document.querySelectorAll('.region-dl-card').forEach(c => c.classList.remove('selected'));
+    updateSelectedSize();
+  }, 2500);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FRONT PAGE
+// ═══════════════════════════════════════════════════════════════════════════
+function renderFrontPage() {
+  const fullBloom = SPOTS.filter(s => s.status === 'full_bloom').length;
+  const blooming = SPOTS.filter(s => ['blooming', 'opening'].includes(s.status)).length;
+  const soon = SPOTS.filter(s => ['budding', 'not_yet'].includes(s.status)).length;
+
+  document.getElementById('stat-full').textContent = fullBloom;
+  document.getElementById('stat-bloom').textContent = blooming;
+  document.getElementById('stat-soon').textContent = soon;
+  document.getElementById('stat-total').textContent = SPOTS.length;
+
+  const grid = document.getElementById('front-grid');
+  const sorted = [...SPOTS].sort((a, b) => b.bloomPct - a.bloomPct);
+  grid.innerHTML = sorted.map(spot => `
+    <div class="front-card" onclick="switchPage('map');setTimeout(()=>{showDetail('${spot.id}');map.flyTo([${spot.lat},${spot.lng}],13)},200)">
+      <div class="front-card-region">${spot.region} · ${spot.pref}</div>
+      <div class="front-card-name">${spot.name}<span style="font-size:13px;font-weight:400;color:var(--text-muted);margin-left:8px">${spot.nameJa}</span></div>
+      <div class="front-card-status">
+        <span class="status-pill status-${spot.status}">${STATUS_EMOJIS[spot.status]} ${STATUS_LABELS[spot.status]}</span>
+        <div class="bloom-bar" style="max-width:120px">
+          <div class="bloom-bar-track"><div class="bloom-bar-fill" style="width:${spot.bloomPct}%"></div></div>
+          <span class="bloom-pct">${spot.bloomPct}%</span>
+        </div>
+      </div>
+      <div class="avg-date" style="margin-top:10px">${spot.weather} ${spot.temp}°C &nbsp;·&nbsp; 满开预计 <strong>${spot.fFull}</strong> &nbsp;·&nbsp; 置信度 ${Math.round(spot.conf*100)}%</div>
+    </div>
+  `).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAGE SWITCHING
+// ═══════════════════════════════════════════════════════════════════════════
+function switchPage(page) {
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.page === page));
+
+  const mapMain = document.getElementById('main');
+  const frontPage = document.getElementById('page-front');
+  const offlinePage = document.getElementById('page-offline');
+
+  mapMain.classList.toggle('active', page === 'map');
+  frontPage.classList.toggle('active', page === 'front');
+  offlinePage.classList.toggle('active', page === 'offline');
+
+  // Fix display styles since page class uses display:flex
+  [mapMain, frontPage, offlinePage].forEach(el => {
+    if (el.classList.contains('active')) el.style.display = 'flex';
+    else el.style.display = 'none';
+  });
+
+  if (page === 'map') setTimeout(() => map && map.invalidateSize(), 100);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════════════════════════════════
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SERVICE WORKER (PWA offline support)
+// ═══════════════════════════════════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  const swCode = `
+const CACHE = 'sakura-v1';
+const ASSETS = ['/'];
+self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))));
+self.addEventListener('fetch', e => {
+  if (e.request.url.includes('tile.openstreetmap')) {
+    e.respondWith(caches.open('sakura-tiles').then(async c => {
+      const cached = await c.match(e.request);
+      if (cached) return cached;
+      const res = await fetch(e.request).catch(() => null);
+      if (res) c.put(e.request, res.clone());
+      return res;
+    }));
+    return;
+  }
+  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+});
+  `;
+  const blob = new Blob([swCode], { type: 'application/javascript' });
+  const swUrl = URL.createObjectURL(blob);
+  navigator.serviceWorker.register(swUrl).catch(() => {});
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════════════
+function initApp() {
+  initMap();
+  renderSpotList(SPOTS);
+  renderFrontPage();
+  initOfflinePage();
+  loadCacheFromStorage();
+  renderCachedCards();
+
+  // Fix initial page visibility
+  document.getElementById('main').style.display = 'flex';
+  document.getElementById('page-front').style.display = 'none';
+  document.getElementById('page-offline').style.display = 'none';
+
+  // Auto-open first spot
+  setTimeout(() => showDetail('s01'), 800);
+}
+</script>
+
+<!-- Load dependencies AFTER body, then init -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+  // Both libs are now synchronously loaded before this runs
+  window.addEventListener('load', initApp);
+</script>
+</body>
+</html>

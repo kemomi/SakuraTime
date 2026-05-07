@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: sakura-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: sakura
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - sakura-net
+
+  server:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.server
+    container_name: sakura-server
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongodb:27017/sakura
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
+      OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY:-}
+    depends_on:
+      - mongodb
+    networks:
+      - sakura-net
+    volumes:
+      - ./client/public:/app/client/public:ro
+
+  nginx:
+    image: nginx:alpine
+    container_name: sakura-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./client/public:/usr/share/nginx/html:ro
+    depends_on:
+      - server
+    networks:
+      - sakura-net
+
+volumes:
+  mongo-data:
+
+networks:
+  sakura-net:
+    driver: bridge

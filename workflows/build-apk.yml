@@ -1,0 +1,76 @@
+name: Build Android APK
+
+on:
+  # 推送到 main 时构建；也可以改成 push tags 或手动触发
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # 1) 拉取代码
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2）部署到 GitHub Pages（保证 HTTPS + 可访问的 manifest）
+      #    如果你已有 Pages，可以删掉这步，只确保 manifest URL 可访问即可
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact for GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .   # 或 client/public，根据你仓库实际结构调整
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
+        id: deploy-pages
+
+      # 3) 使用 Bubblewrap 官方容器生成 Android 工程
+      - name: Init TWA with Bubblewrap
+        run: |
+          # 替换成你实际的 manifest URL（Pages 部署后）
+          MANIFEST_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/manifest.webmanifest"
+
+          # 使用官方容器执行 bubblewrap init（交互式参数需要先本地跑一次导出 twa-manifest.json 或在本机生成后提交到仓库）
+          docker run --rm \
+            -v $PWD:/app \
+            -w /app \
+            ghcr.io/googlechromelabs/bubblewrap:latest \
+            init --manifest="$MANIFEST_URL" --directory=android
+        env:
+          # Bubblewrap 可以使用环境变量接受密码（CI 必需）
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      # 4）在容器里构建 APK/AAB
+      - name: Build APK with Bubblewrap
+        run: |
+          docker run --rm \
+            -v $PWD:/app \
+            -w /app \
+            ghcr.io/googlechromelabs/bubblewrap:latest \
+            build
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        working-directory: android
+
+      # 5）上传 APK 到 workflow artifacts
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sakura-time-apk
+          path: android/app-release-signed.apk
+          if-no-files-found: error
+
+      # 6）创建/更新 GitHub Release 并附上 APK
+      - name: Release APK
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: android/app-release-signed.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
