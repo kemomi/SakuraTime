@@ -1,7 +1,10 @@
 # 🌸 樱花时令 Sakura-Time
 
 > 一个基于 React 和 Node.js 的**实时樱花开放预测系统**，类似"樱花最前线"——支持离线地图下载、开花概率预测、气象数据整合与历史记录分析。
+##  **智能樱花开放预测系统**
+提供实时樱花开放状态和准确的预测信息 [❀点击访问❀](https://kemomi.github.io/SakuraTime)
 
+[English](./README_EN.md) | [中文](./README_CN.md) | [日本語](./README_JP.md)
 ---
 
 ## ✨ 功能特点
