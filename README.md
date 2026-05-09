@@ -212,8 +212,45 @@ async function getWeather(lat, lng) {
 
 ## 📜 许可证
 
-MIT License © 2026 Sakura-Time Contributors
+MIT License © 2026 SakuraTime Contributors
 
 ---
 
-*「花は桜木、人は武士」— 赏花赏心，珍惜每一个花开的瞬间。🌸*
+## 🤝 贡献指南
+
+欢迎贡献！请遵循以下步骤：
+
+1. Fork 项目
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 创建 Pull Request
+
+- 🚀 [快速开始指南](./QUICKSTART.md)
+- 🐛 [提交 Issue](https://github.com/kemomi/SakuraTime/issues)
+- 💬 [讨论区](https://github.com/kemomi/SakuraTime/discussions)
+
+## 🗺️ 路线图
+
+- [ ] 推送通知系统
+- [ ] 社交分享功能
+- [ ] 樱花观赏评分系统
+- [ ] 图片上传和相册
+- [✔] 实时数据同步 (WebSocket)
+- [✔] 多语言支持
+- [✔] 移动 App
+
+
+---
+
+<div align="center">
+
+**[🌸 访问网站](https://kemomi.github.io/SakuraTime/)** • **[⭐ 给个 Star](https://github.com/kemomi/SakuraTime)** • **[🐦 关注我们](https://twitter.com/Misita_18x
+)**
+
+***「花は桜木、人は武士」— 赏花赏心，珍惜每一个花开的瞬间。🌸***
+Made with ❤️ by the Sakura Time Team
+
+</div>
+
+
