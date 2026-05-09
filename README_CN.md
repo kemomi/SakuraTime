@@ -8,7 +8,7 @@
 
 > 一个基于 React 和 Node.js 的**智能樱花开放预测系统**，提供实时樱花开放状态和准确的预测信息。
 
-[English](./README_EN.md) | 中文
+[English](./README_EN.md) | [中文](./README_CN.md) | [日本语](./README_JP.md)
 
 システム名称：
 リアルタイムの桜開花状況と予測情報を提供するReactおよびNode.jsベースのシステム
@@ -343,7 +343,7 @@ MIT License © 2024 Sakura Time Project
 
 <div align="center">
 
-**[🌸 访问网站](https://sakuratime.com)** • **[⭐ 给个 Star](https://github.com/kemomi/SakuraTime)** • **[🐦 关注我们](https://twitter.com/Misita_18x
+**[🌸 访问网站](https://kemomi.github.io/SakuraTime/)** • **[⭐ 给个 Star](https://github.com/kemomi/SakuraTime)** • **[🐦 关注我们](https://twitter.com/Misita_18x
 )**
 
 Made with ❤️ by the Sakura Time Team
