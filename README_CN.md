@@ -8,8 +8,16 @@
 
 > 一个基于 React 和 Node.js 的**智能樱花开放预测系统**，提供实时樱花开放状态和准确的预测信息。
 
+---
+<div align="center">
+  
+<img width="1206" height="2430" alt="BS(DG%Y6CJ( 6UO4IH55L@W_tmb" src="https://github.com/user-attachments/assets/19cac1e0-394e-4a8a-ab2e-177743eda593" />
+
+
 [English](./README_EN.md) | [中文](./README_CN.md) | [日本语](./README_JP.md)
 
+</div>
+---
 システム名称：
 リアルタイムの桜開花状況と予測情報を提供するReactおよびNode.jsベースのシステム
 説明：このシステムは、ReactとNode.jsを基盤とし、リアルタイムの桜開花状況と予測情報を提供します。気象データ（例：冬季の低温期間、春の気温上昇速度）やAIアルゴリズム
