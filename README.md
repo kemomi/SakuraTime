@@ -5,8 +5,10 @@
 提供实时樱花开放状态和准确的预测信息 [❀点击访问❀](https://kemomi.github.io/SakuraTime)
 <img width="1440" height="868" alt="ca2f60757fc9d49b7d8cb6e36ab0b4e4" src="https://github.com/user-attachments/assets/50e0faf9-b215-4dc2-9cfb-fa071215ffa1" />
 
-
+<div align="center">
 [English](./README_EN.md) | [中文](./README_CN.md) | [日本語](./README_JP.md)
+</div>
+
 ---
 
 ## ✨ 功能特点
